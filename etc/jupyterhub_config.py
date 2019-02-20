@@ -15,7 +15,6 @@ c.Spawner.cpu_limit = 5.0
 
 c.DockerSpawner.http_timeout = 120
 c.DockerSpawner.image = 'radiasoft/beamsim-jupyter'
-c.DockerSpawner.remove = True
 # needs to be true b/c create_object will invoke port bindings otherwise
 c.DockerSpawner.use_internal_ip = True
 c.DockerSpawner.network_name = 'host'
@@ -26,24 +25,27 @@ c.DockerSpawner.volumes = {
         'bind': '/home/vagrant/jupyter',
     },
 }
-c.DockerSpawner.client_kwargs = dict(
-    base_url="tcp://localhost.localdomain:2376",
-)
-c.DockerSpawner.tls_config = dict(
-    client_cert=(run_d + '/docker_tls/cert.pem', run_d + '/docker_tls/key.pem'),
-    ca_cert=run_d + '/docker_tls/cacert.pem',
-    verify=True,
-)
 c.RSDockerSpawner.tls_dir = run_d + '/docker_tls'
-
+c.RSDockerSpawner.servers_per_host = 2
+# this doesn't seem to work
+c.JupyerHub.active_server_limit = 2
 
 c.JupyterHub.confirm_no_ssl = True
 c.JupyterHub.cookie_secret = base64.b64decode('qBdGBamOJTk5REgm7GUdsReB4utbp4g+vBja0SwY2IQojyCxA+CwzOV5dTyPJWvK13s61Yie0c/WDUfy8HtU2w==')
 c.JupyterHub.hub_ip = public_ips()[0]
 c.JupyterHub.ip = '0.0.0.0'
 c.JupyterHub.port = 8000
+
+# NEED THIS to keep servers alive after restart of hub
+# this doesn't work if False
+#    docker.errors.APIError: 409 Client Error: Conflict ("Conflict. The container name "/jupyter-vagrant" is
+#    already in use by container "cb44afddee641143a798d6ee1dfa508014f4e4fbf097307d73702ee57664b652".
+c.JupyterHub.cleanup_servers = True
+
+# NEED THIS so people can restart their containers for real
+c.DockerSpawner.remove = True
+
 c.JupyterHub.proxy_auth_token = '+UFr+ALeDDPR4jg0WNX+hgaF0EV5FNat1A3Sv0swbrg='
-c.JupyterHub.authenticator_class = 'jupyterhub.auth.PAMAuthenticator'
 
 # Debugging only
 c.Application.log_level = 'DEBUG'

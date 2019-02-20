@@ -16,9 +16,5 @@ docker pull radiasoft/beamsim-jupyter
 rm -rf run
 mkdir -p run/{docker_tls/localhost.localdomain,jupyterhub/vagrant}
 ln -s -r $PWD/etc/jupyterhub_config.py run/jupyterhub_config.py
-d=run/docker_tls/localhost.localdomain
-for i in cert key; do
-    sudo cat /etc/docker/tls/$i.pem | install -m 600 /dev/stdin $d/$i.pem
-done
-cp -a $d/cert.pem $d/cacert.pem
+cp -a etc/docker_tls run
 (cd run && exec jupyterhub -f jupyterhub_config.py)
