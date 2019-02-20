@@ -35,7 +35,6 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
     @property
     def client(self):
         if self.__client is None:
-            self.__allocate_slot()
             self.__client = self.__docker_client(self.__slot.host)
         return self.__client
 
@@ -58,8 +57,8 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
 
     @tornado.gen.coroutine
     def get_object(self, *args, **kwargs):
-        """Initializes the slots and state first time"""
-        self.__allocate_slot()
+        if not self.__allocate_slot(no_raise=True):
+            return None
         res = yield super(RSDockerSpawner, self).get_object(*args, **kwargs)
         if not res:
             self.__deallocate_slot()
@@ -67,13 +66,20 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
 
     @tornado.gen.coroutine
     def remove_object(self, *args, **kwargs):
-        res = yield super(RSDockerSpawner, self).get_object(*args, **kwargs)
-        self.__deallocate_slot()
-        return res
-
-    def __allocate_slot(self):
-        if self.__slot:
+        if not self.__slot:
             return
+        yield super(RSDockerSpawner, self).remove_object(*args, **kwargs)
+        self.__deallocate_slot()
+
+    @tornado.gen.coroutine
+    def stop_object(self, *args, **kwargs):
+        if not self.__slot:
+            return
+        yield super(RSDockerSpawner, self).stop_object(*args, **kwargs)
+
+    def __allocate_slot(self, no_raise=False):
+        if self.__slot:
+            return True
         self.__init_class()
         self.__client = None
         s = self.__find_container(self.object_name)
@@ -82,7 +88,9 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
                 if not s.cname:
                     break
             else:
-                self.log.info('{} slots in use, no more slots', len(self.__slots))
+                if no_raise:
+                    return False
+                self.log.warn('not more servers, slots_in use=%s', len(self.__slots))
                 # copied from jupyter.handlers.base
                 # The error message doesn't show up the first time, but will show up
                 # if the user refreshes the browser.
@@ -90,8 +98,9 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
                     429,
                     'No more servers available. Try again in a few minutes.',
                 )
-            self.__slot = s
+        self.__slot = s
         self.__slot.cname = self.object_name
+        return True
 
     def __deallocate_slot(self):
         if not self.__slot:
@@ -147,7 +156,7 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
             if i.join('key.pem'):
                 hosts.append(i.basename)
         slots = cls.__init_slots(hosts)
-        cls.__init_containers(slots, hosts)
+        cls.__init_containers(slots, hosts, self.log)
         cls.__slots.extend(slots)
         self.log.info(
             'hosts=%s slots=%s slots_in_use=%s',
@@ -157,10 +166,19 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
         )
 
     @classmethod
-    def __init_containers(cls, slots, hosts):
+    def __init_containers(cls, slots, hosts, log):
         c = None
-        for h in hosts:
-            d = cls.__docker_client(h)
+        hosts_copy = hosts[:]
+        for h in hosts_copy:
+            try:
+                d = cls.__docker_client(h)
+            except docker.errors.DockerException as e:
+                log.error('Docker error on %s: %s', h, e)
+                hosts.remove(h)
+                for s in list(slots):
+                    if s.host == h:
+                        slots.remove(s)
+                continue
             for c in d.containers(all=True):
                 if _PORT_LABEL not in c['Labels']:
                     # not ours
