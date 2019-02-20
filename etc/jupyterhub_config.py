@@ -9,10 +9,17 @@ c.JupyterHub.authenticator_class = 'jupyterhub.auth.PAMAuthenticator'
 
 c.Authenticator.admin_users = set(['vagrant'])
 
+# will need to be implemented by spawner
+c.Spawner.mem_limit = '16G'
+c.Spawner.cpu_limit = 5.0
+
 c.DockerSpawner.http_timeout = 120
 c.DockerSpawner.image = 'radiasoft/beamsim-jupyter'
-c.DockerSpawner.remove_containers = True
+c.DockerSpawner.remove = True
+# needs to be true b/c create_object will invoke port bindings otherwise
 c.DockerSpawner.use_internal_ip = True
+c.DockerSpawner.network_name = 'host'
+# c.DockerSpawner.read_only_volumes
 c.DockerSpawner.volumes = {
     run_d + '/jupyterhub/{username}': {
         # POSIT: notebook_dir in containers/radiasoft/beamsim-jupyter/build.sh
@@ -27,6 +34,8 @@ c.DockerSpawner.tls_config = dict(
     ca_cert=run_d + '/docker_tls/cacert.pem',
     verify=True,
 )
+c.RSDockerSpawner.tls_dir = run_d + '/docker_tls'
+
 
 c.JupyterHub.confirm_no_ssl = True
 c.JupyterHub.cookie_secret = base64.b64decode('qBdGBamOJTk5REgm7GUdsReB4utbp4g+vBja0SwY2IQojyCxA+CwzOV5dTyPJWvK13s61Yie0c/WDUfy8HtU2w==')
