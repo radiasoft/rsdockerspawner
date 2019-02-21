@@ -32,7 +32,7 @@ c.JupyerHub.active_server_limit = 2
 
 c.JupyterHub.confirm_no_ssl = True
 c.JupyterHub.cookie_secret = base64.b64decode('qBdGBamOJTk5REgm7GUdsReB4utbp4g+vBja0SwY2IQojyCxA+CwzOV5dTyPJWvK13s61Yie0c/WDUfy8HtU2w==')
-c.JupyterHub.hub_ip = public_ips()[0]
+c.JupyterHub.hub_ip = [i for i in public_ips() if i.startswith('10.10.')][0]
 c.JupyterHub.ip = '0.0.0.0'
 c.JupyterHub.port = 8000
 
