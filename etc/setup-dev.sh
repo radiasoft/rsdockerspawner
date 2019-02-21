@@ -42,3 +42,9 @@ ln -s -r $PWD/etc/jupyterhub_config.py run/jupyterhub_config.py
     cp cert.pem cacert.pem
 )
 (cd run && exec jupyterhub -f jupyterhub_config.py)
+
+
+# If you want to get access to a public server, you might need this
+socat TCP-LISTEN:8000,fork,reuseaddr TCP:v.radia.run:8000
+# and updating iptables
+-A INPUT -i <DEV> -s <SOURCE> -p tcp -m state --state NEW -m tcp --match multiport --dports 8000 -j ACCEPT
