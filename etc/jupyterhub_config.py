@@ -26,9 +26,9 @@ c.DockerSpawner.volumes = {
     },
 }
 c.RSDockerSpawner.tls_dir = run_d + '/docker_tls'
-c.RSDockerSpawner.servers_per_host = 2
+c.RSDockerSpawner.servers_per_host = 1
 # this doesn't seem to work
-c.JupyerHub.active_server_limit = 2
+# c.JupyerHub.active_server_limit = 2
 
 c.JupyterHub.confirm_no_ssl = True
 c.JupyterHub.cookie_secret = base64.b64decode('qBdGBamOJTk5REgm7GUdsReB4utbp4g+vBja0SwY2IQojyCxA+CwzOV5dTyPJWvK13s61Yie0c/WDUfy8HtU2w==')
