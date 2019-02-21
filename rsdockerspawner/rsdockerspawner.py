@@ -155,7 +155,7 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
         c = str(d.join('cert.pem'))
         k['tls'] = docker.tls.TLSConfig(
             client_cert=(c, str(d.join('key.pem'))),
-            ca_cert=c,
+            ca_cert=str(d.join('cacert.pem')),
             verify=True,
         )
         return docker.APIClient(**k)
