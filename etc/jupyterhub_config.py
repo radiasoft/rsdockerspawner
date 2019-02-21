@@ -20,7 +20,7 @@ c.DockerSpawner.use_internal_ip = True
 c.DockerSpawner.network_name = 'host'
 # c.DockerSpawner.read_only_volumes
 c.DockerSpawner.volumes = {
-    run_d + '/jupyterhub/{username}': {
+    run_d + '/user/{username}': {
         # POSIT: notebook_dir in containers/radiasoft/beamsim-jupyter/build.sh
         'bind': '/home/vagrant/jupyter',
     },

@@ -22,7 +22,7 @@ rm -f ~/bin/configurable-http-proxy
 ln -s $PWD/node_modules/configurable-http-proxy/bin/configurable-http-proxy ~/bin
 docker pull radiasoft/beamsim-jupyter | cat
 rm -rf run
-mkdir -p run/{docker_tls,jupyterhub/vagrant}
+mkdir -p run/{docker_tls,user/vagrant}
 ln -s -r $PWD/etc/jupyterhub_config.py run/jupyterhub_config.py
 (
     set -euo pipefail
@@ -41,8 +41,10 @@ ln -s -r $PWD/etc/jupyterhub_config.py run/jupyterhub_config.py
     done
     cp cert.pem cacert.pem
 )
-(cd run && exec jupyterhub -f jupyterhub_config.py)
 
+(cd run && exec jupyterhub -f jupyterhub_config.py)
+# you may need to restart to chown
+sudo chown -R vagrant: run/user
 
 # If you want to get access to a public server, you might need this
 socat TCP-LISTEN:8000,fork,reuseaddr TCP:v.radia.run:8000
