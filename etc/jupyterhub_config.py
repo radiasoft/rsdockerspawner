@@ -10,8 +10,8 @@ c.JupyterHub.authenticator_class = 'jupyterhub.auth.PAMAuthenticator'
 c.Authenticator.admin_users = set(['vagrant'])
 
 # will need to be implemented by spawner
-c.Spawner.mem_limit = '16G'
-c.Spawner.cpu_limit = 5.0
+c.Spawner.mem_limit = '1G'
+c.Spawner.cpu_limit = 0.5
 
 c.DockerSpawner.http_timeout = 120
 c.DockerSpawner.image = 'radiasoft/beamsim-jupyter'
