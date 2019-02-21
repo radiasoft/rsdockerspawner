@@ -16,8 +16,11 @@ import tornado
 import traitlets
 
 
+#: container label for jupyter port
 _PORT_LABEL = 'rsdockerspawner_port'
 
+#: CPU Fair Scheduler (CFS) period (see below)
+_CPU_PERIOD_US = 100000
 
 class RSDockerSpawner(dockerspawner.DockerSpawner):
 
@@ -42,6 +45,21 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
     def create_object(self, *args, **kwargs):
         self.__allocate_slot()
         self.extra_create_kwargs = {'labels': {_PORT_LABEL: str(self.__slot.port)}}
+        if self.cpu_limit:
+            self.extra_host_config = dict(
+                # The unreleased docker.py has "nano_cpus", which is --cpus * 1e9.
+                # Which gets converted to cpu_period and cpu_quota in Docker source:
+                # https://github.com/moby/moby/blob/ec87479/daemon/daemon_unix.go#L142
+                # Also read this:
+                # https://www.kernel.org/doc/Documentation/scheduler/sched-bwc.txt
+                # You can see the values with:
+                # id=$(docker inspect --format='{{.Id}}' jupyter-vagrant)
+                # fs=/sys/fs/cgroup/cpu/docker/$id
+                # cat $fs/cpu.cfs_period_us
+                # cat $fs/cpu.cfs_quota_us
+                cpu_period=_CPU_PERIOD_US,
+                cpu_quota=int(float(_CPU_PERIOD_US) * self.cpu_limit),
+            )
         res = yield super(RSDockerSpawner, self).create_object(*args, **kwargs)
         return res
 
