@@ -8,6 +8,7 @@ from __future__ import absolute_import, division, print_function
 from dockerspawner import dockerspawner
 from pykern import pkcollections
 from pykern import pkio
+from pykern import pkjson
 from pykern.pkdebug import pkdp
 import docker
 import glob
@@ -21,6 +22,9 @@ _PORT_LABEL = 'rsdockerspawner_port'
 
 #: CPU Fair Scheduler (CFS) period (see below)
 _CPU_PERIOD_US = 100000
+
+#: dump the slots whenever an update happens
+_SLOTS_FILE = 'rsdockerspawner_slots.json'
 
 class RSDockerSpawner(dockerspawner.DockerSpawner):
 
@@ -97,7 +101,17 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
 
     def __allocate_slot(self, no_raise=False):
         if self.__slot:
-            return True
+            if self.__slot.cname == self.object_name:
+                return True
+            # Should not see this message
+            self.log.warn(
+                'removing slot=%s:%s cname=%s not same as object_name=%s',
+                self.__slot.host,
+                self.__slot.port,
+                self.__slot.cname,
+                self.object_name,
+            )
+            self.__slot = None
         self.__init_class()
         self.__client = None
         s = self.__find_container(self.object_name)
@@ -116,8 +130,9 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
                     429,
                     'No more servers available. Try again in a few minutes.',
                 )
+            s.cname = self.object_name
+            pkjson.dump_pretty(self.__slots, filename=_SLOTS_FILE)
         self.__slot = s
-        self.__slot.cname = self.object_name
         return True
 
     def __deallocate_slot(self):
@@ -126,6 +141,7 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
         self.__client = None
         self.__slot.cname = None
         self.__slot = None
+        pkjson.dump_pretty(self.__slots, filename=_SLOTS_FILE)
 
     @classmethod
     def __docker_client(cls, host):
