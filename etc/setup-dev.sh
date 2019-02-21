@@ -48,3 +48,12 @@ ln -s -r $PWD/etc/jupyterhub_config.py run/jupyterhub_config.py
 socat TCP-LISTEN:8000,fork,reuseaddr TCP:v.radia.run:8000
 # and updating iptables
 -A INPUT -i <DEV> -s <SOURCE> -p tcp -m state --state NEW -m tcp --match multiport --dports 8000 -j ACCEPT
+
+# If you want to bypass authentication, modify jupyterhub.auth
+class PAMAuthenticator(LocalAuthenticator):
+    def add_user(...):
+        return
+
+    def authenticate(...):
+       if data['password'] == 'magic pass':
+          return username
