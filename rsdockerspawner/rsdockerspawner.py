@@ -48,7 +48,10 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
     @tornado.gen.coroutine
     def create_object(self, *args, **kwargs):
         self.__allocate_slot()
-        self.extra_create_kwargs = {'labels': {_PORT_LABEL: str(self.__slot.port)}}
+        self.extra_create_kwargs = {
+            'hostname': f'rs{self.__slot.num}.local',
+            'labels': {_PORT_LABEL: str(self.__slot.port)},
+        }
         if self.cpu_limit:
             self.extra_host_config = dict(
                 # The unreleased docker.py has "nano_cpus", which is --cpus * 1e9.
@@ -248,4 +251,7 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
                     ),
                 )
         # sort by port first so we distribute servers across hosts
-        return sorted(res, key=lambda x: str(x.port) + x.host)
+        res = sorted(res, key=lambda x: str(x.port) + x.host)
+        for i, s in enumerate(res):
+            s.num = i + 1
+        return res
