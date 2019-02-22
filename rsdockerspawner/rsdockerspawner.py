@@ -152,9 +152,8 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
         d = pkio.py_path(cls.__traits.tls_dir).join(host)
         assert d.check(dir=True), \
             f'tls_dir/<host> does not exist: {d}'
-        c = str(d.join('cert.pem'))
         k['tls'] = docker.tls.TLSConfig(
-            client_cert=(c, str(d.join('key.pem'))),
+            client_cert=(str(d.join('cert.pem')), str(d.join('key.pem'))),
             ca_cert=str(d.join('cacert.pem')),
             verify=True,
         )
