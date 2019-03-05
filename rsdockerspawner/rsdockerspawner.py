@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-u"""subclass docker spawner
+u"""Multi-host Docker execution with host networking
 
 :copyright: Copyright (c) 2019 RadiaSoft LLC.  All Rights Reserved.
 :license: http://www.apache.org/licenses/LICENSE-2.0.html
@@ -103,21 +103,23 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
         yield super(RSDockerSpawner, self).stop_object(*args, **kwargs)
 
     def __allocate_slot(self, no_raise=False):
+        # docker puts a slash preceding the Name
+        n = '/' + self.object_name
         if self.__slot:
-            if self.__slot.cname == self.object_name:
+            if self.__slot.cname == n:
                 return True
             # Should not see this message
             self.log.warn(
-                'removing slot=%s:%s cname=%s not same as object_name=%s',
+                'removing existing slot=%s:%s cname=%s != object_name=%s',
                 self.__slot.host,
                 self.__slot.port,
                 self.__slot.cname,
-                self.object_name,
+                n,
             )
             self.__slot = None
         self.__init_class()
         self.__client = None
-        s = self.__find_container(self.object_name)
+        s = self.__find_container(n)
         if not s:
             for s in self.__slots:
                 if not s.cname:
@@ -133,7 +135,7 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
                     429,
                     'No more servers available. Try again in a few minutes.',
                 )
-            s.cname = self.object_name
+            s.cname = n
             pkjson.dump_pretty(self.__slots, filename=_SLOTS_FILE)
         self.__slot = s
         return True
@@ -191,18 +193,18 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
         for i in pkio.py_path(t.tls_dir).listdir():
             if i.join('key.pem'):
                 hosts.append(i.basename)
-        slots = cls.__init_slots(hosts)
-        cls.__init_containers(slots, hosts, self.log)
-        cls.__slots.extend(slots)
+        # reuse object so shared between instances
+        cls.__slots.extend(cls.__init_slots(hosts))
+        cls.__init_containers(hosts, self.log)
         self.log.info(
             'hosts=%s slots=%s slots_in_use=%s',
             ' '.join(hosts),
-            len(slots),
-            len([x for x in slots if x.cname]),
+            len(cls.__slots),
+            len([x for x in cls.__slots if x.cname]),
         )
 
     @classmethod
-    def __init_containers(cls, slots, hosts, log):
+    def __init_containers(cls, hosts, log):
         c = None
         hosts_copy = hosts[:]
         for h in hosts_copy:
@@ -211,9 +213,9 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
             except docker.errors.DockerException as e:
                 log.error('Docker error on %s: %s', h, e)
                 hosts.remove(h)
-                for s in list(slots):
+                for s in list(cls.__slots):
                     if s.host == h:
-                        slots.remove(s)
+                        cls.__slots.remove(s)
                 continue
             for c in d.containers(all=True):
                 if _PORT_LABEL not in c['Labels']:
