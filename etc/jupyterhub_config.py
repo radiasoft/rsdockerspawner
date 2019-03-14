@@ -29,6 +29,11 @@ c.RSDockerSpawner.cfg = '''{
     "port_base": 8100,
     "tls_dir": "''' + run_d + '''/docker_tls",
     "pools": {
+        "private": {
+            "servers_per_host": 1,
+            "hosts": [ "v2.radia.run" ],
+            "users": [ "vagrant" ]
+        },
         "default": {
             "servers_per_host": 1,
             "hosts": [ "localhost.localdomain" ],
