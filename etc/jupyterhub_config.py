@@ -25,8 +25,18 @@ c.DockerSpawner.volumes = {
         'bind': '/home/vagrant/jupyter',
     },
 }
-c.RSDockerSpawner.tls_dir = run_d + '/docker_tls'
-c.RSDockerSpawner.servers_per_host = 1
+c.RSDockerSpawner.cfg = '''{
+    "port_base": 8100,
+    "tls_dir": "''' + run_d + '''/docker_tls",
+    "pools": {
+        "default": {
+            "servers_per_host": 1,
+            "hosts": [ "localhost.localdomain" ],
+            "users": [ ]
+        }
+    }
+}'''
+
 # this doesn't seem to work
 # c.JupyerHub.active_server_limit = 2
 
@@ -40,7 +50,7 @@ c.JupyterHub.port = 8000
 # this doesn't work if False
 #    docker.errors.APIError: 409 Client Error: Conflict ("Conflict. The container name "/jupyter-vagrant" is
 #    already in use by container "cb44afddee641143a798d6ee1dfa508014f4e4fbf097307d73702ee57664b652".
-c.JupyterHub.cleanup_servers = True
+c.JupyterHub.cleanup_servers = False
 
 # NEED THIS so people can restart their containers for real
 c.DockerSpawner.remove = True

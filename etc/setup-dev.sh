@@ -1,6 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 _bivio_pyenv_version 3.6.6 jh
+pyenv global jh
 pip install 'ipython[all]'
 mkdir -p ~/src/jupyterhub
 cd ~/src/jupyterhub
