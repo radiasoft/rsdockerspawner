@@ -24,18 +24,23 @@ _PORT_LABEL = 'rsdockerspawner_port'
 _CPU_PERIOD_US = 100000
 
 #: dump the slots whenever an update happens
-_SLOTS_FILE = 'rsdockerspawner_slots.json'
+_POOLS_FILE = 'rsdockerspawner_pools.json'
+
+#: Name of the default pool, which must not have allowed_users
+_DEFAULT_POOL_NAME = 'default'
 
 class RSDockerSpawner(dockerspawner.DockerSpawner):
 
-    tls_dir = traitlets.Unicode('', config=True)
-    servers_per_host = traitlets.Int(1, config=True)
+    rsconf = traitlets.Unicode('', config=True)
+
+    #: shared variable to ensure initialization happens once
+    __class_is_initialized = set()
 
     __slot = None
 
-    __slots = []
+    __pools = pkcollections.Dict()
 
-    __traits = pkcollections.Dict()
+    __rsconf = pkcollections.Dict()
 
     __client = None
 
@@ -108,9 +113,9 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
         if self.__slot:
             if self.__slot.cname == n:
                 return True
-            # Should not see this message
-            self.log.warn(
-                'removing existing slot=%s:%s cname=%s != object_name=%s',
+            # Should not get here
+            self.log.error(
+                'PROGRAM ERROR: removing existing slot=%s:%s cname=%s != object_name=%s',
                 self.__slot.host,
                 self.__slot.port,
                 self.__slot.cname,
@@ -119,15 +124,22 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
             self.__slot = None
         self.__init_class()
         self.__client = None
-        s = self.__find_container(n)
+        pool, s = self.__find_container(n)
         if not s:
-            for s in self.__slots:
+            pool, slots = self.__slots_for_user()
+            for s in slots:
                 if not s.cname:
                     break
             else:
                 if no_raise:
                     return False
-                self.log.warn('not more servers, slots_in use=%s', len(self.__slots))
+                #TODO(robnagler) handle case where default pool is empty
+                #TODO(robnagler) garbage collect and retry
+                self.log.warn(
+                    'no more servers, pool=%s slots_in_use=%s',
+                    pool.name,
+                    len(slots),
+                )
                 # copied from jupyter.handlers.base
                 # The error message doesn't show up the first time, but will show up
                 # if the user refreshes the browser.
@@ -136,8 +148,10 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
                     'No more servers available. Try again in a few minutes.',
                 )
             s.cname = n
-            pkjson.dump_pretty(self.__slots, filename=_SLOTS_FILE)
+            pkjson.dump_pretty(self.__pools, filename=_POOLS_FILE)
         self.__slot = s
+        self.mem_limit = pool.mem_limit
+        self.cpu_limit = pool.cpu_limit
         return True
 
     def __deallocate_slot(self):
@@ -146,7 +160,7 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
         self.__client = None
         self.__slot.cname = None
         self.__slot = None
-        pkjson.dump_pretty(self.__slots, filename=_SLOTS_FILE)
+        pkjson.dump_pretty(self.__pools, filename=_POOLS_FILE)
 
     @classmethod
     def __docker_client(cls, host):
@@ -154,7 +168,7 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
             'version': 'auto',
             'base_url': 'tcp://{}:2376'.format(host),
         }
-        d = pkio.py_path(cls.__traits.tls_dir).join(host)
+        d = pkio.py_path(cls.__rsconf.tls_dir).join(host)
         assert d.check(dir=True), \
             f'tls_dir/<host> does not exist: {d}'
         k['tls'] = docker.tls.TLSConfig(
@@ -166,66 +180,81 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
 
     @classmethod
     def __find_container(cls, cname):
-        for s in cls.__slots:
-            if s.cname == cname:
-                return s
-        return None
+        for p in cls.__pools:
+            for s in p.slots:
+                if s.cname == cname:
+                    return p, s
+        return None, None
 
     @classmethod
-    def __find_slot(cls, host, port):
-        for s in cls.__slots:
+    def __find_slot(cls, pool, host, port):
+        for s in pool.slots:
             if s.host == host and s.port == port:
                 return s
         return None
 
     def __init_class(self):
-        if self.__slots:
+        if self.__class_is_initialized:
             return
+        #TODO(robnagler) Must be single threaded. Not sure
+        # how we do that here, because docker api is async...
+        self.__class_is_initialized.add(True)
         cls = self.__class__
-        # easiest way to access traits from a class
-        cls.__traits.update(
-            tls_dir=self.tls_dir,
-            servers_per_host=self.servers_per_host,
-            port=self.port,
-        )
-        t = cls.__traits
-        hosts = []
-        for i in pkio.py_path(t.tls_dir).listdir():
-            if i.join('key.pem'):
-                hosts.append(i.basename)
-        # reuse object so shared between instances
-        cls.__slots.extend(cls.__init_slots(hosts))
-        cls.__init_containers(hosts, self.log)
-        self.log.info(
-            'hosts=%s slots=%s slots_in_use=%s',
-            ' '.join(hosts),
-            len(cls.__slots),
-            len([x for x in cls.__slots if x.cname]),
-        )
+        # easiest way to access config generated by rsconf shared by instances
+        cls.__rsconf.update(pkjson.load_any(self.rsconf))
+        cls.__init_pools(self.log)
+
+
+    def __init_pools(cls, log):
+        for n, c in cls.__rsconf.pools.items():
+            p = copy.deepcopy(c)
+            p.name = n
+            # reuse object so shared between instances
+            p.slots = cls.__init_slots(p)
+            cls.__pools[n] = p
+            cls.__init_containers(p, log)
+            self.log.info(
+                'pool=%s hosts=%s slots=%s slots_in_use=%s',
+                n,
+                ' '.join(hosts),
+                len(p.slots),
+                len([x for x in p.slots if x.cname]),
+            )
+        if _DEFAULT_POOL_NAME not in cls.__pools:
+            # Minimal configuration for default paul
+            cls.__pools[_DEFAULT_POOL_NAME] = pkcollections.Dict(
+                name=_DEFAULT_POOL_NAME,
+                slots=[],
+            )
+
 
     @classmethod
-    def __init_containers(cls, hosts, log):
+    def __init_containers(cls, pool, log):
         c = None
-        hosts_copy = hosts[:]
+        hosts_copy = pool.hosts[:]
         for h in hosts_copy:
             try:
                 d = cls.__docker_client(h)
             except docker.errors.DockerException as e:
-                log.error('Docker error on %s: %s', h, e)
-                hosts.remove(h)
-                for s in list(cls.__slots):
+                log.error(
+                    'Docker error on pool=%s host=%s: %s',
+                    pool.name,
+                    h,
+                    e,
+                )
+                pool.hosts.remove(h)
+                for s in list(pool.slots):
                     if s.host == h:
-                        cls.__slots.remove(s)
+                        pool.slots.remove(s)
                 continue
             for c in d.containers(all=True):
                 if _PORT_LABEL not in c['Labels']:
                     # not ours
                     continue
-                p = int(c['Labels'][_PORT_LABEL])
-                s = cls.__find_slot(h, p)
+                s = cls.__find_slot(pool, h, int(c['Labels'][_PORT_LABEL]))
                 n = c['Names'][0]
                 i = c['Id']
-                if s and c['State'] == 'running' and not cls.__find_container(n):
+                if s and c['State'] == 'running' and not cls.__find_container(n)[0]:
                     s.cname = n
                     continue
                 # not running, duplicate, or port config changed
@@ -240,11 +269,11 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
 
 
     @classmethod
-    def __init_slots(cls, hosts):
+    def __init_slots(cls, pool):
         res = []
-        t = cls.__traits
-        for h in hosts:
-            for p in range(t.port, t.port + t.servers_per_host):
+        c = cls.__rsconf
+        for h in pool.hosts:
+            for p in range(c.port, c.port + pool.servers_per_host):
                 res.append(
                     pkcollections.Dict(
                         cname=None,
@@ -257,3 +286,13 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
         for i, s in enumerate(res):
             s.num = i + 1
         return res
+
+
+    def __slots_for_user(self):
+        u  = self.user.name
+        for p in self.__pools.values():
+            if u in p.allowed_users:
+                break
+        else:
+            p = self.__pools[_DEFAULT_POOL_NAME]
+        return p, p.slots
