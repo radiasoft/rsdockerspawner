@@ -198,6 +198,7 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
                     )
                 seen_user[u] = n
 
+        slot_base = 1
         for n, c in cls.__cfg.pools.items():
             p = copy.deepcopy(c)
             p.name = n
@@ -206,7 +207,8 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
                 'No hosts in pool={}'.format(n)
             p.setdefault('mem_limit', None)
             p.setdefault('cpu_limit', None)
-            p.slots = cls.__init_slots(p)
+            p.slots = cls.__init_slots(p, slot_base)
+            slot_base += len(p.slots)
             cls.__pools[n] = p
             cls.__init_containers(p, log)
             log.info(
@@ -231,7 +233,7 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
         return None
 
     @classmethod
-    def __init_slots(cls, pool):
+    def __init_slots(cls, pool, slot_base):
         res = []
         c = cls.__cfg
         for h in pool.hosts:
@@ -245,8 +247,9 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
                 )
         # sort by port first so we distribute servers across hosts
         res = sorted(res, key=lambda x: str(x.port) + x.host)
-        for i, s in enumerate(res):
-            s.num = i + 1
+        for s in res:
+            s.num = slot_base
+            slot_base += 1
         return res
 
     def __pool_for_user(self):
@@ -298,7 +301,7 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
                     # are no allocations for this user. This could be a config
                     # error, or it could be all the servers in the pool are
                     # unavailable.
-                    raise web.HTTPError(
+                    raise tornado.web.HTTPError(
                         403,
                         'No servers have been allocated for this user.',
                     )
