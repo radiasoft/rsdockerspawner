@@ -31,7 +31,9 @@ _DEFAULT_POOL_NAME = 'default'
 
 class RSDockerSpawner(dockerspawner.DockerSpawner):
 
-    rsconf = traitlets.Unicode('', config=True)
+    cfg = traitlets.Dict(config=True)
+
+    __class_lock = tornado.locks.Lock()
 
     #: shared variable to ensure initialization happens once
     __class_is_initialized = set()
@@ -40,7 +42,7 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
 
     __pools = pkcollections.Dict()
 
-    __rsconf = pkcollections.Dict()
+    __cfg = pkcollections.Dict()
 
     __client = None
 
@@ -52,7 +54,7 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
 
     @tornado.gen.coroutine
     def create_object(self, *args, **kwargs):
-        self.__allocate_slot()
+        self.__slot_alloc()
         self.extra_create_kwargs = {
             'hostname': f'rs{self.__slot.num}.local',
             'labels': {_PORT_LABEL: str(self.__slot.port)},
@@ -87,11 +89,11 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
 
     @tornado.gen.coroutine
     def get_object(self, *args, **kwargs):
-        if not self.__allocate_slot(no_raise=True):
+        if not self.__slot_alloc(no_raise=True):
             return None
         res = yield super(RSDockerSpawner, self).get_object(*args, **kwargs)
         if not res:
-            self.__deallocate_slot()
+            self.__slot_free()
         return res
 
     @tornado.gen.coroutine
@@ -99,7 +101,7 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
         if not self.__slot:
             return
         yield super(RSDockerSpawner, self).remove_object(*args, **kwargs)
-        self.__deallocate_slot()
+        self.__slot_free()
 
     @tornado.gen.coroutine
     def stop_object(self, *args, **kwargs):
@@ -107,68 +109,13 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
             return
         yield super(RSDockerSpawner, self).stop_object(*args, **kwargs)
 
-    def __allocate_slot(self, no_raise=False):
-        # docker puts a slash preceding the Name
-        n = '/' + self.object_name
-        if self.__slot:
-            if self.__slot.cname == n:
-                return True
-            # Should not get here
-            self.log.error(
-                'PROGRAM ERROR: removing existing slot=%s:%s cname=%s != object_name=%s',
-                self.__slot.host,
-                self.__slot.port,
-                self.__slot.cname,
-                n,
-            )
-            self.__slot = None
-        self.__init_class()
-        self.__client = None
-        pool, s = self.__find_container(n)
-        if not s:
-            pool, slots = self.__slots_for_user()
-            for s in slots:
-                if not s.cname:
-                    break
-            else:
-                if no_raise:
-                    return False
-                #TODO(robnagler) handle case where default pool is empty
-                #TODO(robnagler) garbage collect and retry
-                self.log.warn(
-                    'no more servers, pool=%s slots_in_use=%s',
-                    pool.name,
-                    len(slots),
-                )
-                # copied from jupyter.handlers.base
-                # The error message doesn't show up the first time, but will show up
-                # if the user refreshes the browser.
-                raise tornado.web.HTTPError(
-                    429,
-                    'No more servers available. Try again in a few minutes.',
-                )
-            s.cname = n
-            pkjson.dump_pretty(self.__pools, filename=_POOLS_FILE)
-        self.__slot = s
-        self.mem_limit = pool.mem_limit
-        self.cpu_limit = pool.cpu_limit
-        return True
-
-    def __deallocate_slot(self):
-        if not self.__slot:
-            return
-        self.__client = None
-        self.__slot.cname = None
-        self.__slot = None
-        pkjson.dump_pretty(self.__pools, filename=_POOLS_FILE)
-
     @classmethod
     def __docker_client(cls, host):
         k = {
             'version': 'auto',
             'base_url': 'tcp://{}:2376'.format(host),
         }
-        d = pkio.py_path(cls.__rsconf.tls_dir).join(host)
+        d = pkio.py_path(cls.__cfg.tls_dir).join(host)
         assert d.check(dir=True), \
             f'tls_dir/<host> does not exist: {d}'
         k['tls'] = docker.tls.TLSConfig(
@@ -178,55 +125,17 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
         )
         return docker.APIClient(**k)
 
-    @classmethod
-    def __find_container(cls, cname):
-        for p in cls.__pools:
-            for s in p.slots:
-                if s.cname == cname:
-                    return p, s
-        return None, None
-
-    @classmethod
-    def __find_slot(cls, pool, host, port):
-        for s in pool.slots:
-            if s.host == host and s.port == port:
-                return s
-        return None
-
     def __init_class(self):
         if self.__class_is_initialized:
             return
-        #TODO(robnagler) Must be single threaded. Not sure
-        # how we do that here, because docker api is async...
-        self.__class_is_initialized.add(True)
         cls = self.__class__
-        # easiest way to access config generated by rsconf shared by instances
-        cls.__rsconf.update(pkjson.load_any(self.rsconf))
-        cls.__init_pools(self.log)
-
-
-    def __init_pools(cls, log):
-        for n, c in cls.__rsconf.pools.items():
-            p = copy.deepcopy(c)
-            p.name = n
-            # reuse object so shared between instances
-            p.slots = cls.__init_slots(p)
-            cls.__pools[n] = p
-            cls.__init_containers(p, log)
-            self.log.info(
-                'pool=%s hosts=%s slots=%s slots_in_use=%s',
-                n,
-                ' '.join(hosts),
-                len(p.slots),
-                len([x for x in p.slots if x.cname]),
-            )
-        if _DEFAULT_POOL_NAME not in cls.__pools:
-            # Minimal configuration for default paul
-            cls.__pools[_DEFAULT_POOL_NAME] = pkcollections.Dict(
-                name=_DEFAULT_POOL_NAME,
-                slots=[],
-            )
-
+        async with cls.__class_lock:
+            if cls.__class_is_initialized:
+                return
+            cls.__class_is_initialized.add(True)
+            # easiest way to access config generated by rsconf shared by instances
+            cls.__cfg.update(pkjson.load_any(self.cfg))
+            cls.__init_pools(self.log)
 
     @classmethod
     def __init_containers(cls, pool, log):
@@ -251,10 +160,10 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
                 if _PORT_LABEL not in c['Labels']:
                     # not ours
                     continue
-                s = cls.__find_slot(pool, h, int(c['Labels'][_PORT_LABEL]))
+                s = cls.__init_slot_find(pool, h, int(c['Labels'][_PORT_LABEL]))
                 n = c['Names'][0]
                 i = c['Id']
-                if s and c['State'] == 'running' and not cls.__find_container(n)[0]:
+                if s and c['State'] == 'running' and not cls.__slot_for_container(n)[0]:
                     s.cname = n
                     continue
                 # not running, duplicate, or port config changed
@@ -267,11 +176,42 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
                 except Exception:
                     pass
 
+    @classmethod
+    def __init_pools(cls, log):
+        for n, c in cls.__cfg.pools.items():
+            p = copy.deepcopy(c)
+            p.setdefault('mem_limit', None)
+            p.setdefault('cpu_limit', None)
+            p.name = n
+            # reuse object so shared between instances
+            p.slots = cls.__init_slots(p)
+            cls.__pools[n] = p
+            cls.__init_containers(p, log)
+            self.log.info(
+                'pool=%s hosts=%s slots=%s slots_in_use=%s',
+                n,
+                ' '.join(hosts),
+                len(p.slots),
+                len([x for x in p.slots if x.cname]),
+            )
+        if _DEFAULT_POOL_NAME not in cls.__pools:
+            # Minimal configuration for default paul
+            cls.__pools[_DEFAULT_POOL_NAME] = pkcollections.Dict(
+                name=_DEFAULT_POOL_NAME,
+                slots=[],
+            )
+
+    @classmethod
+    def __init_slot_find(cls, pool, host, port):
+        for s in pool.slots:
+            if s.host == host and s.port == port:
+                return s
+        return None
 
     @classmethod
     def __init_slots(cls, pool):
         res = []
-        c = cls.__rsconf
+        c = cls.__cfg
         for h in pool.hosts:
             for p in range(c.port, c.port + pool.servers_per_host):
                 res.append(
@@ -287,8 +227,7 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
             s.num = i + 1
         return res
 
-
-    def __slots_for_user(self):
+    def __pool_for_user(self):
         u  = self.user.name
         for p in self.__pools.values():
             if u in p.allowed_users:
@@ -296,3 +235,74 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
         else:
             p = self.__pools[_DEFAULT_POOL_NAME]
         return p, p.slots
+
+    def __slot_alloc(self, no_raise=False):
+        # docker puts a slash preceding the Name
+        n = '/' + self.object_name
+        if self.__slot:
+            if self.__slot.cname == n:
+                return True
+            # Should not get here
+            self.log.error(
+                'PROGRAM ERROR: removing existing slot=%s:%s cname=%s != object_name=%s',
+                self.__slot.host,
+                self.__slot.port,
+                self.__slot.cname,
+                n,
+            )
+            self.__slot = None
+        self.__init_class()
+        self.__client = None
+        pool, s = self.__slot_for_container(n)
+        if not s:
+            pool, slots = self.__pool_for_user()
+            for s in slots:
+                if not s.cname:
+                    break
+            else:
+                if no_raise:
+                    return False
+                #TODO(robnagler) garbage collect and retry
+                self.log.warn(
+                    'no more servers, pool=%s slots_in_use=%s',
+                    pool.name,
+                    len(slots),
+                )
+                if len(slots) == 0:
+                    # If the slots are 0, then the pool is empty, and there
+                    # are no allocations for this user. This could be a config
+                    # error, or it could be all the servers in the pool are
+                    # unavailable.
+                    raise web.HTTPError(
+                        403,
+                        'No servers have been allocated for this user.',
+                    )
+                # copied from jupyter.handlers.base
+                # The error message doesn't show up the first time, but will show up
+                # if the user refreshes the browser.
+                raise tornado.web.HTTPError(
+                    429,
+                    'No more servers available. Try again in a few minutes.',
+                )
+            s.cname = n
+            pkjson.dump_pretty(self.__pools, filename=_POOLS_FILE)
+        self.__slot = s
+        self.mem_limit = pool.mem_limit
+        self.cpu_limit = pool.cpu_limit
+        return True
+
+    @classmethod
+    def __slot_for_container(cls, cname):
+        for p in cls.__pools:
+            for s in p.slots:
+                if s.cname == cname:
+                    return p, s
+        return None, None
+
+    def __slot_free(self):
+        if not self.__slot:
+            return
+        self.__client = None
+        self.__slot.cname = None
+        self.__slot = None
+        pkjson.dump_pretty(self.__pools, filename=_POOLS_FILE)
