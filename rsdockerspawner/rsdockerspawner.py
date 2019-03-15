@@ -88,7 +88,6 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
     def get_ip_and_port(self):
         return (socket.gethostbyname(self.__slot.host), self.__slot.port)
 
-
     @tornado.gen.coroutine
     def get_object(self, *args, **kwargs):
         if not (yield self.__slot_alloc(no_raise=True)):
@@ -97,6 +96,11 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
         if not res:
             self.__slot_free()
         return res
+
+    @tornado.gen.coroutine
+    def pull_image(self, *args, **kwargs):
+        yield self.__slot_alloc()
+        yield super(RSDockerSpawner, self).pull_image(*args, **kwargs)
 
     @tornado.gen.coroutine
     def remove_object(self, *args, **kwargs):
@@ -314,6 +318,13 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
                 )
             s.cname = n
             pkjson.dump_pretty(self.__pools, filename=_POOLS_FILE)
+            self.log.info(
+                'came=%s pool=%s host=%s slot=%s',
+                n,
+                pool.name,
+                s.host,
+                s.num,
+            )
         self.__slot = s
         self.mem_limit = pool.mem_limit
         self.cpu_limit = pool.cpu_limit
