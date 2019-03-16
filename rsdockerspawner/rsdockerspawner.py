@@ -14,6 +14,7 @@ import copy
 import docker
 import glob
 import socket
+import time
 import tornado
 import tornado.locks
 import traitlets
@@ -93,7 +94,9 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
         if not (yield self.__slot_alloc(no_raise=True)):
             return None
         res = yield super(RSDockerSpawner, self).get_object(*args, **kwargs)
-        if not res:
+        if res:
+            self.__slot.activity_secs = self.user.last_activity.timestamp()
+        else:
             self.__slot_free()
         return res
 
@@ -130,6 +133,9 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
             verify=True,
         )
         return docker.APIClient(**k)
+
+    def __cname(self):
+        return '/' + self.object_name
 
     @tornado.gen.coroutine
     def __init_class(self):
@@ -211,7 +217,11 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
                 'No hosts in pool={}'.format(n)
             p.setdefault('mem_limit', None)
             p.setdefault('cpu_limit', None)
+            p.min_activity_secs = float(p.min_activity_hours) * 60. * 60.
+            assert p.min_activity_secs > 0, \
+                'min_activity_hours={} may not be negative'.format(p.min_activity_hours)
             p.slots = cls.__init_slots(p, slot_base)
+            p.lock = tornado.locks.Lock()
             slot_base += len(p.slots)
             cls.__pools[n] = p
             cls.__init_containers(p, log)
@@ -247,6 +257,7 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
                         cname=None,
                         host=h,
                         port=p,
+                        activity_secs=0.,
                     ),
                 )
         # sort by port first so we distribute servers across hosts
@@ -263,72 +274,122 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
                 break
         else:
             p = self.__pools[_DEFAULT_POOL_NAME]
-        return p, p.slots
+        if len(p.slots) == 0:
+            # If the slots are 0, then the pool is empty, and there
+            # are no allocations for this user. This could be a config
+            # error, or it could be all the servers in the pool are
+            # unavailable.
+            raise tornado.web.HTTPError(
+                403,
+                'No servers have been allocated for this user.',
+            )
+        return p
+
+    @tornado.gen.coroutine
+    def __pool_gc(self, pool):
+        # all slots have names, and the pool is locked
+        s = sorted(pool.slots, key=lambda x: x.activity_secs)[0]
+        if s.activity_secs >= time.time() - pool.min_activity_secs:
+            return None
+        self.log.info(
+            'pool_gc: removing cname=%s on host=%s for cname=%s pool=%s slot=%s',
+            slot.cname,
+            slot.host,
+            self.__cname(),
+            pool.name,
+            slot.num,
+        )
+        # No backlinks to self so clear cname to indicate slot is
+        # free. If we crash in the below, that's ok. We may have
+        # extra containers running, but we need then to poll the
+        # entire collection of containers to make sure everything
+        # is ok.
+        # TODO(robnagler) audit pools
+        cname = s.cname
+        s.cname = None
+        try:
+            m = getattr(self.__docker_client(s.host), 'remove')
+            yield self.executor.submit(m, 'remove', cname, force=True)
+        except Exception as e:
+            self.log.error(
+                'pool_gc: remove failed: host=%s cname=%s pool=%s slot=%s error=%s',
+                slot.host,
+                cname,
+                pool.name,
+                slot.num,
+                e,
+            )
+        return s
 
     @tornado.gen.coroutine
     def __slot_alloc(self, no_raise=False):
-        # docker puts a slash preceding the Name
-        n = '/' + self.object_name
+        n = self.__cname()
         if self.__slot:
+#TODO(robnagler) race condition here
+# probably need container_id here as well?
             if self.__slot.cname == n:
+                s.activity_secs = self.user.last_activity.timestamp()
                 return True
-            # Should not get here
-            self.log.error(
-                'PROGRAM ERROR: removing existing slot=%s:%s cname=%s != object_name=%s',
-                self.__slot.host,
-                self.__slot.port,
+            self.log.warn(
+                'Garbage collected slot=%s cname=%s != object_name=%s',
+                self.__slot.num,
                 self.__slot.cname,
                 n,
             )
-            self.__slot = None
-
-        if not self.__class_is_initialized:
-            yield self.__init_class()
+            self.__slot__free()
+        else:
+            if not self.__class_is_initialized:
+                yield self.__init_class()
         self.__client = None
         pool, s = self.__slot_for_container(n)
-        if not s:
-            pool, slots = self.__pool_for_user()
-            for s in slots:
-                if not s.cname:
-                    break
-            else:
-                if no_raise:
-                    return False
-                #TODO(robnagler) garbage collect and retry
-                self.log.warn(
-                    'no more servers, pool=%s slots_in_use=%s',
-                    pool.name,
-                    len(slots),
-                )
-                if len(slots) == 0:
-                    # If the slots are 0, then the pool is empty, and there
-                    # are no allocations for this user. This could be a config
-                    # error, or it could be all the servers in the pool are
-                    # unavailable.
-                    raise tornado.web.HTTPError(
-                        403,
-                        'No servers have been allocated for this user.',
-                    )
-                # copied from jupyter.handlers.base
-                # The error message doesn't show up the first time, but will show up
-                # if the user refreshes the browser.
-                raise tornado.web.HTTPError(
-                    429,
-                    'No more servers available. Try again in a few minutes.',
-                )
-            s.cname = n
-            pkjson.dump_pretty(self.__pools, filename=_POOLS_FILE)
+        if s:
+#TODO(robnagler) race condition, the slot may disappear
+            s.activity_secs = self.user.last_activity.timestamp()
+        else:
+            s, pool = yield self.__slot_alloc_try(no_raise)
+            if not s:
+                return False
             self.log.info(
-                'came=%s pool=%s host=%s slot=%s',
+                'cname=%s pool=%s host=%s slot=%s',
                 n,
                 pool.name,
                 s.host,
                 s.num,
             )
+        pkjson.dump_pretty(self.__pools, filename=_POOLS_FILE)
         self.__slot = s
         self.mem_limit = pool.mem_limit
         self.cpu_limit = pool.cpu_limit
         return True
+
+    @tornado.gen.coroutine
+    def __slot_alloc_try(self, no_raise):
+        pool = self.__pool_for_user()
+        with (yield pool.lock.acquire()):
+            for s in pool.slots:
+                if not s.cname:
+                    break
+            else:
+                if no_raise:
+                    return None, None
+                s = yield self.__pool_gc(pool)
+                if not s:
+                    #TODO(robnagler) garbage collect and retry
+                    self.log.warn(
+                        'no more servers, pool=%s slots_in_use=%s',
+                        pool.name,
+                        len(pool.slots),
+                    )
+                    # copied from jupyter.handlers.base
+                    # The error message doesn't show up the first time, but will show up
+                    # if the user refreshes the browser.
+                    raise tornado.web.HTTPError(
+                        429,
+                        'No more servers available. Try again in a few minutes.',
+                    )
+            s.activity_secs = time.time()
+            s.cname = self.__cname()
+            return s, pool
 
     @classmethod
     def __slot_for_container(cls, cname):
@@ -342,6 +403,8 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
         if not self.__slot:
             return
         self.__client = None
-        self.__slot.cname = None
+        if self.__cname() == self.__slot.cname:
+            # Might have been garbage collected
+            self.__slot.cname = None
         self.__slot = None
         pkjson.dump_pretty(self.__pools, filename=_POOLS_FILE)
