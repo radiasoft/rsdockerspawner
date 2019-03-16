@@ -27,10 +27,17 @@ _PORT_LABEL = 'rsdockerspawner_port'
 _CPU_PERIOD_US = 100000
 
 #: dump the slots whenever an update happens
-_POOLS_FILE = 'rsdockerspawner_pools.json'
+_POOLS_DUMP_FILE = 'rsdockerspawner_pools.json'
 
 #: Name of the default pool, which must not have any users
 _DEFAULT_POOL_NAME = 'default'
+
+#: Large time out for minimum allowed activity (effectively infinite)
+_DEFAULT_MIN_ACTIVITY_HOURS = 1e6
+
+#: Minimum five mins so we don't garbage collect too frequently
+_MIN_MIN_ACTIVITY_SECS = 300.0
+
 
 class RSDockerSpawner(dockerspawner.DockerSpawner):
 
@@ -151,23 +158,21 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
             assert d.check(dir=True), \
                 'tls_dir={} does not exist'.format(d)
             cls.__cfg.tls_dir = d
-            cls.__init_pools(self.log)
+            yield cls.__init_pools(self.log)
             cls.__class_is_initialized.add(True)
 
     @classmethod
+    @tornado.gen.coroutine
     def __init_containers(cls, pool, log):
+        log.info('pool=%s', pool.name)
         c = None
         hosts_copy = pool.hosts[:]
+        log.info('hosts %s', hosts_copy)
         for h in hosts_copy:
             try:
                 d = cls.__docker_client(h)
             except docker.errors.DockerException as e:
-                log.error(
-                    'Docker error on pool=%s host=%s: %s',
-                    pool.name,
-                    h,
-                    e,
-                )
+                log.error('Docker error on pool=%s host=%s: %s', pool.name, h, e)
                 pool.hosts.remove(h)
                 for s in list(pool.slots):
                     if s.host == h:
@@ -177,23 +182,60 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
                 if _PORT_LABEL not in c['Labels']:
                     # not ours
                     continue
-                s = cls.__init_slot_find(pool, h, int(c['Labels'][_PORT_LABEL]))
+                p = int(c['Labels'][_PORT_LABEL])
                 n = c['Names'][0]
                 i = c['Id']
-                if s and c['State'] == 'running' and not cls.__slot_for_container(n)[0]:
-                    s.cname = n
-                    continue
-                # not running, duplicate, or port config changed
+                log.info(
+                    'init_containers: cname=%s cid=%s host=%s port=%s',
+                    n,
+                    i,
+                    h,
+                    p,
+                )
+                s = cls.__init_slot_find(pool, h, p)
+                log.debug(
+                    'init_containers: found slot=%s for cname=%s cid=%s host=%s port=%s',
+                    s and s.num,
+                    n,
+                    i,
+                    h,
+                    p,
+                )
+                if s and c['State'] == 'running':
+                    if s.cname:
+                        log.error(
+                            'init_containers: found cname=%s for slot=%s with cname=%s',
+                            n,
+                            s.num,
+                            s.cname,
+                        )
+                    else:
+                        s2 = cls.__slot_for_container(n)[0]
+                        if s2:
+                            log.error(
+                                'init_containers: found slot=%s for cname=%s so removing slot=%s host=%s',
+                                s2.num,
+                                n,
+                                s.num,
+                                s.host,
+                            )
+                        else:
+                            log.info(
+                                'init_containers: assigning cname=%s to slot=%s host=%s',
+                                n,
+                                s.num,
+                                s.host,
+                            )
+                            s.cname = n
+                            continue
                 try:
-                    d.stop(i)
-                except Exception:
-                    pass
-                try:
-                    d.remove_container(i)
-                except Exception:
-                    pass
+                    m = getattr(d, 'remove_container')
+                    yield self.executor.submit(m, i, force=True)
+                except Exception as e:
+                    log.error('init_containers: remove cid=%s failed: %s', i, e)
 
     @classmethod
+    @tornado.gen.coroutine
     def __init_pools(cls, log):
         seen_user = pkcollections.Dict()
 
@@ -217,14 +259,18 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
                 'No hosts in pool={}'.format(n)
             p.setdefault('mem_limit', None)
             p.setdefault('cpu_limit', None)
-            p.min_activity_secs = float(p.min_activity_hours) * 60. * 60.
-            assert p.min_activity_secs > 0, \
-                'min_activity_hours={} may not be negative'.format(p.min_activity_hours)
+            h = p.min_activity_hours or _DEFAULT_MIN_ACTIVITY_HOURS
+            p.min_activity_secs = float(h) * 3600.
+            assert p.min_activity_secs >= _MIN_MIN_ACTIVITY_SECS, \
+                'min_activity_hours={} must not be less than {}'.format(
+                    h,
+                    3600. * _MIN_MIN_ACTIVITY_SECS,
+                )
             p.slots = cls.__init_slots(p, slot_base)
             p.lock = tornado.locks.Lock()
             slot_base += len(p.slots)
             cls.__pools[n] = p
-            cls.__init_containers(p, log)
+            yield cls.__init_containers(p, log)
             log.info(
                 'pool=%s hosts=%s slots=%s slots_in_use=%s',
                 n,
@@ -292,12 +338,11 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
         if s.activity_secs >= time.time() - pool.min_activity_secs:
             return None
         self.log.info(
-            'pool_gc: removing cname=%s on host=%s for cname=%s pool=%s slot=%s',
-            slot.cname,
-            slot.host,
-            self.__cname(),
-            pool.name,
-            slot.num,
+            'pool_gc: removing slot=%s cname=%s activity_secs=%s for new user=%s',
+            s.num,
+            s.cname,
+            s.activity_secs,
+            self.user.name,
         )
         # No backlinks to self so clear cname to indicate slot is
         # free. If we crash in the below, that's ok. We may have
@@ -308,58 +353,76 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
         cname = s.cname
         s.cname = None
         try:
-            m = getattr(self.__docker_client(s.host), 'remove')
-            yield self.executor.submit(m, 'remove', cname, force=True)
+            m = getattr(self.__docker_client(s.host), 'remove_container')
+            yield self.executor.submit(m, cname, force=True)
         except Exception as e:
             self.log.error(
-                'pool_gc: remove failed: host=%s cname=%s pool=%s slot=%s error=%s',
-                slot.host,
+                'pool_gc: remove failed: slot=%s cname=%s pool=%s host=%s error=%s',
+                s.num,
                 cname,
                 pool.name,
-                slot.num,
+                s.host,
                 e,
             )
         return s
+
+    def __pools_dump(self):
+        pools = copy.deepcopy(self.__pools)
+        for p in pools.values():
+            del p['lock']
+        pkjson.dump_pretty(pools, filename=_POOLS_DUMP_FILE)
 
     @tornado.gen.coroutine
     def __slot_alloc(self, no_raise=False):
         n = self.__cname()
         if self.__slot:
-#TODO(robnagler) race condition here
-# probably need container_id here as well?
             if self.__slot.cname == n:
-                s.activity_secs = self.user.last_activity.timestamp()
+                self.__slot.activity_secs = self.user.last_activity.timestamp()
+                self.log.debug(
+                    'already allocated slot=%s cname=%s activity_secs=%s',
+                    self.__slot.num,
+                    self.__slot.cname,
+                    self.__slot.activity_secs,
+                )
                 return True
             self.log.warn(
-                'Garbage collected slot=%s cname=%s != object_name=%s',
+                'Lazy gc cleanup slot=%s slot.cname=%s != %s=self.__cname',
                 self.__slot.num,
                 self.__slot.cname,
                 n,
             )
-            self.__slot__free()
+            self.__slot_free()
         else:
             if not self.__class_is_initialized:
                 yield self.__init_class()
-        self.__client = None
         pool, s = self.__slot_for_container(n)
         if s:
-#TODO(robnagler) race condition, the slot may disappear
-            s.activity_secs = self.user.last_activity.timestamp()
-        else:
-            s, pool = yield self.__slot_alloc_try(no_raise)
-            if not s:
-                return False
+            # Ensures pool_gc doesn't select this slot
+            s.activity_secs = time.time()
             self.log.info(
-                'cname=%s pool=%s host=%s slot=%s',
+                'found slot=%s cname=%s pool=%s host=%s',
+                s.num,
                 n,
                 pool.name,
                 s.host,
-                s.num,
             )
-        pkjson.dump_pretty(self.__pools, filename=_POOLS_FILE)
+        else:
+            s, pool = yield self.__slot_alloc_try(no_raise)
+            if not s:
+                self.log.info('alloc: no slot for user=%s', self.user.name)
+                return False
+            self.log.info(
+                'allocated slot=%s cname=%s pool=%s host=%s',
+                s.num,
+                n,
+                pool.name,
+                s.host,
+            )
         self.__slot = s
+        self.__client = None
         self.mem_limit = pool.mem_limit
         self.cpu_limit = pool.cpu_limit
+        self.__pools_dump()
         return True
 
     @tornado.gen.coroutine
@@ -374,21 +437,22 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
                     return None, None
                 s = yield self.__pool_gc(pool)
                 if not s:
-                    #TODO(robnagler) garbage collect and retry
                     self.log.warn(
                         'no more servers, pool=%s slots_in_use=%s',
                         pool.name,
                         len(pool.slots),
                     )
-                    # copied from jupyter.handlers.base
-                    # The error message doesn't show up the first time, but will show up
-                    # if the user refreshes the browser.
+                    # copied from jupyter.handlers.base The error
+                    # message doesn't show up the first time, but will
+                    # show up if the user refreshes the browser.
                     raise tornado.web.HTTPError(
                         429,
                         'No more servers available. Try again in a few minutes.',
                     )
-            s.activity_secs = time.time()
+            # Only play with assignment to slot.cname so only
+            # place that needs a lock.
             s.cname = self.__cname()
+            s.activity_secs = time.time()
             return s, pool
 
     @classmethod
@@ -402,9 +466,16 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
     def __slot_free(self):
         if not self.__slot:
             return
+        self.log.info(
+            'free slot=%s cname=%s user=%s host=%s',
+            self.__slot.num,
+            self.__slot.cname,
+            self.user.name,
+            self.__slot.host,
+        )
         self.__client = None
         if self.__cname() == self.__slot.cname:
             # Might have been garbage collected
             self.__slot.cname = None
         self.__slot = None
-        pkjson.dump_pretty(self.__pools, filename=_POOLS_FILE)
+        self.__pools_dump()
