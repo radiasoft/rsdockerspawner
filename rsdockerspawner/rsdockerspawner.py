@@ -14,6 +14,8 @@ from pykern.pkdebug import pkdp
 import copy
 import docker
 import glob
+import os
+import os.path
 import socket
 import time
 import tornado
@@ -123,6 +125,16 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
         if not self.__slot:
             return
         yield super(RSDockerSpawner, self).stop_object(*args, **kwargs)
+
+    def _volumes_to_binds(self, *args, **kwargs):
+        """Ensure the bind directories exist"""
+        binds = super(RSDockerSpawner, self)._volumes_to_binds(*args, **kwargs)
+        # POSIT: user running jupyterhub is also the jupyter user
+        for v in binds:
+            while not os.path.exists(v):
+                os.mkdir(v)
+                v = os.path.dirname(v)
+            return binds
 
     @classmethod
     def __docker_client(cls, host):
