@@ -7,6 +7,7 @@ u"""Multi-host Docker execution with host networking
 from __future__ import absolute_import, division, print_function
 from dockerspawner import dockerspawner
 from pykern import pkcollections
+from pykern import pkconfig
 from pykern import pkio
 from pykern import pkjson
 from pykern.pkdebug import pkdp
@@ -36,7 +37,7 @@ _DEFAULT_POOL_NAME = 'default'
 _DEFAULT_MIN_ACTIVITY_HOURS = 1e6
 
 #: Minimum five mins so we don't garbage collect too frequently
-_MIN_MIN_ACTIVITY_SECS = 300.0
+_MIN_MIN_ACTIVITY_SECS = 5.0 if pkconfig.channel_in('dev') else 300.0
 
 
 class RSDockerSpawner(dockerspawner.DockerSpawner):
@@ -101,9 +102,7 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
         if not (yield self.__slot_alloc(no_raise=True)):
             return None
         res = yield super(RSDockerSpawner, self).get_object(*args, **kwargs)
-        if res:
-            self.__slot.activity_secs = self.user.last_activity.timestamp()
-        else:
+        if not res:
             self.__slot_free()
         return res
 
@@ -164,10 +163,8 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
     @classmethod
     @tornado.gen.coroutine
     def __init_containers(cls, pool, log):
-        log.info('pool=%s', pool.name)
         c = None
         hosts_copy = pool.hosts[:]
-        log.info('hosts %s', hosts_copy)
         for h in hosts_copy:
             try:
                 d = cls.__docker_client(h)
@@ -185,15 +182,8 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
                 p = int(c['Labels'][_PORT_LABEL])
                 n = c['Names'][0]
                 i = c['Id']
-                log.info(
-                    'init_containers: cname=%s cid=%s host=%s port=%s',
-                    n,
-                    i,
-                    h,
-                    p,
-                )
                 s = cls.__init_slot_find(pool, h, p)
-                log.debug(
+                log.info(
                     'init_containers: found slot=%s for cname=%s cid=%s host=%s port=%s',
                     s and s.num,
                     n,
@@ -213,7 +203,7 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
                         s2 = cls.__slot_for_container(n)[0]
                         if s2:
                             log.error(
-                                'init_containers: found slot=%s for cname=%s so removing slot=%s host=%s',
+                                'init_containers: another slot=%s for cname=%s so removing slot=%s host=%s',
                                 s2.num,
                                 n,
                                 s.num,
@@ -226,8 +216,14 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
                                 s.num,
                                 s.host,
                             )
-                            s.cname = n
+                            cls.__slot_assign(s, n)
                             continue
+                log.info(
+                    'init_containers: removing unallocated cname=%s cid=%s host=%s',
+                    n,
+                    s.num,
+                    s.host,
+                )
                 try:
                     m = getattr(d, 'remove_container')
                     yield self.executor.submit(m, i, force=True)
@@ -264,7 +260,7 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
             assert p.min_activity_secs >= _MIN_MIN_ACTIVITY_SECS, \
                 'min_activity_hours={} must not be less than {}'.format(
                     h,
-                    3600. * _MIN_MIN_ACTIVITY_SECS,
+                    int(_MIN_MIN_ACTIVITY_SECS / 3600.),
                 )
             p.slots = cls.__init_slots(p, slot_base)
             p.lock = tornado.locks.Lock()
@@ -279,7 +275,7 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
                 len([x for x in p.slots if x.cname]),
             )
         if _DEFAULT_POOL_NAME not in cls.__pools:
-            # Minimal configuration for default paul
+            # Minimal configuration for default pool
             cls.__pools[_DEFAULT_POOL_NAME] = pkcollections.Dict(
                 name=_DEFAULT_POOL_NAME,
                 slots=[],
@@ -300,10 +296,10 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
             for p in range(c.port_base, c.port_base + pool.servers_per_host):
                 res.append(
                     pkcollections.Dict(
+                        activity_secs=0.,
                         cname=None,
                         host=h,
                         port=p,
-                        activity_secs=0.,
                     ),
                 )
         # sort by port first so we distribute servers across hosts
@@ -335,13 +331,14 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
     def __pool_gc(self, pool):
         # all slots have names, and the pool is locked
         s = sorted(pool.slots, key=lambda x: x.activity_secs)[0]
-        if s.activity_secs >= time.time() - pool.min_activity_secs:
+        t = time.time() - s.activity_secs
+        if t >= pool.min_activity_secs:
             return None
         self.log.info(
-            'pool_gc: removing slot=%s cname=%s activity_secs=%s for new user=%s',
+            'pool_gc: removing slot=%s cname=%s inactivity_secs=%s for new user=%s',
             s.num,
             s.cname,
-            s.activity_secs,
+            int(t),
             self.user.name,
         )
         # No backlinks to self so clear cname to indicate slot is
@@ -377,16 +374,17 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
         n = self.__cname()
         if self.__slot:
             if self.__slot.cname == n:
+                # Most likely its a poll() and only case where we use last_activity
                 self.__slot.activity_secs = self.user.last_activity.timestamp()
                 self.log.debug(
-                    'already allocated slot=%s cname=%s activity_secs=%s',
+                    'slot_alloc: already allocated slot=%s cname=%s inactivity_secs=%s',
                     self.__slot.num,
                     self.__slot.cname,
-                    self.__slot.activity_secs,
+                    int(time.time() - self.__slot.activity_secs),
                 )
                 return True
             self.log.warn(
-                'Lazy gc cleanup slot=%s slot.cname=%s != %s=self.__cname',
+                'slot_alloc: gc cleanup slot=%s slot.cname=%s != %s=self.__cname',
                 self.__slot.num,
                 self.__slot.cname,
                 n,
@@ -400,7 +398,7 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
             # Ensures pool_gc doesn't select this slot
             s.activity_secs = time.time()
             self.log.info(
-                'found slot=%s cname=%s pool=%s host=%s',
+                'slot_alloc: found slot=%s cname=%s pool=%s host=%s',
                 s.num,
                 n,
                 pool.name,
@@ -412,7 +410,7 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
                 self.log.info('alloc: no slot for user=%s', self.user.name)
                 return False
             self.log.info(
-                'allocated slot=%s cname=%s pool=%s host=%s',
+                'slot_alloc: allocated slot=%s cname=%s pool=%s host=%s',
                 s.num,
                 n,
                 pool.name,
@@ -438,7 +436,7 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
                 s = yield self.__pool_gc(pool)
                 if not s:
                     self.log.warn(
-                        'no more servers, pool=%s slots_in_use=%s',
+                        'slot_alloc_try: no more servers, pool=%s slots_in_use=%s',
                         pool.name,
                         len(pool.slots),
                     )
@@ -449,11 +447,13 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
                         429,
                         'No more servers available. Try again in a few minutes.',
                     )
-            # Only play with assignment to slot.cname so only
-            # place that needs a lock.
-            s.cname = self.__cname()
-            s.activity_secs = time.time()
+            self.__slot_assign(s, self.__cname())
             return s, pool
+
+    @classmethod
+    def __slot_assign(cls, slot, cname):
+        slot.activity_secs = time.time()
+        slot.cname = cname
 
     @classmethod
     def __slot_for_container(cls, cname):
