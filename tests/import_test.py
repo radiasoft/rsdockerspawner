@@ -9,4 +9,4 @@ from __future__ import absolute_import, division, print_function
 import pytest
 
 def test_1():
-    import rsdockerspawner
+    import rsdockerspawner.rsdockerspawner

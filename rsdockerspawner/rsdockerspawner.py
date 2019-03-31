@@ -39,7 +39,7 @@ _DEFAULT_POOL_NAME = 'default'
 _DEFAULT_MIN_ACTIVITY_HOURS = 1e6
 
 #: Minimum five mins so we don't garbage collect too frequently
-_MIN_MIN_ACTIVITY_SECS = 5.0 if pkconfig.channel_in('dev') else 300.0
+_MIN_MIN_ACTIVITY_SECS = 5.0 if pkconfig.channel_in_internal_test() else 300.0
 
 
 class RSDockerSpawner(dockerspawner.DockerSpawner):
@@ -344,7 +344,13 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
         # all slots have names, and the pool is locked
         s = sorted(pool.slots, key=lambda x: x.activity_secs)[0]
         t = time.time() - s.activity_secs
-        if t >= pool.min_activity_secs:
+        if t < pool.min_activity_secs:
+            self.log.info(
+                'pool_gc: least active slot=%s cname=%s inactivity_secs=%s',
+                s.num,
+                s.cname,
+                int(t),
+            )
             return None
         self.log.info(
             'pool_gc: removing slot=%s cname=%s inactivity_secs=%s for new user=%s',
