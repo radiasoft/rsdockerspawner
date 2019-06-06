@@ -131,10 +131,9 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
         binds = super(RSDockerSpawner, self)._volumes_to_binds(*args, **kwargs)
         # POSIT: user running jupyterhub is also the jupyter user
         for v in binds:
-            while not os.path.exists(v):
-                os.mkdir(v)
-                v = os.path.dirname(v)
-            return binds
+            if not os.path.exists(v):
+                os.makedirs(v)
+        return binds
 
     @classmethod
     def __docker_client(cls, host):
