@@ -14,13 +14,7 @@ c.DockerSpawner.image = 'radiasoft/beamsim-jupyter'
 # needs to be true b/c create_object will invoke port bindings otherwise
 c.DockerSpawner.use_internal_ip = True
 c.DockerSpawner.network_name = 'host'
-# c.DockerSpawner.read_only_volumes
-c.DockerSpawner.volumes = {
-    run_d + '/user/{username}': {
-        # POSIT: notebook_dir in containers/radiasoft/beamsim-jupyter/build.sh
-        'bind': '/home/vagrant/jupyter',
-    },
-}
+# POSIT: notebook_dir in containers/radiasoft/beamsim-jupyter/build.sh
 c.RSDockerSpawner.cfg = '''{
     "port_base": 8100,
     "tls_dir": "''' + run_d + '''/docker_tls",

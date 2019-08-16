@@ -10,7 +10,7 @@ from pykern import pkcollections
 from pykern import pkconfig
 from pykern import pkio
 from pykern import pkjson
-from pykern.pkdebug import pkdp
+from pykern.pkdebug import pkdp, pkdpretty
 import copy
 import docker
 import glob
@@ -41,6 +41,9 @@ _DEFAULT_MIN_ACTIVITY_HOURS = 1e6
 #: Minimum five mins so we don't garbage collect too frequently
 _MIN_MIN_ACTIVITY_SECS = 5.0 if pkconfig.channel_in_internal_test() else 300.0
 
+#: User that matches all volumes
+_DEFAULT_VOLUME_USER = '*'
+
 
 class RSDockerSpawner(dockerspawner.DockerSpawner):
 
@@ -58,6 +61,16 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
     __cfg = pkcollections.Dict()
 
     __client = None
+
+    @property
+    def volumes(self):
+        return {
+            '/home/vagrant/src/radiasoft/rsdockerspawner/run/user/{}'.format(self.escaped_name): {
+                'bind': '/home/vagrant/jupyter',
+                'mode': 'rw',
+            },
+        }
+
 
     @property
     def client(self):
@@ -168,6 +181,7 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
             assert d.check(dir=True), \
                 'tls_dir={} does not exist'.format(d)
             cls.__cfg.tls_dir = d
+            cls.__init_volumes(self.log)
             yield cls.__init_pools(self.log)
             cls.__class_is_initialized.add(True)
 
@@ -320,6 +334,28 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
             s.num = slot_base
             slot_base += 1
         return res
+
+    @classmethod
+    def __init_volumes(cls, log):
+        res = pkcollections.Dict({_DEFAULT_VOLUME_USER: pkcollections.Dict()})
+        for s, v in cls.__cfg.volumes.items():
+            if not ('mode' in v and isinstance(v.mode, dict)):
+                res[_DEFAULT_VOLUME_USER][s] = copy.deepcopy(v)
+                continue
+            for m in 'rw', 'ro':
+                v2 = copy.deepcopy(v)
+                if not m in v.mode:
+                    continue
+                v2.mode = m
+                u2 = cls.__users_for_groups(v.mode.rw)
+                for u in u2 or [_DEFAULT_VOLUME_USER]:
+                    x = res.setdefault(u, pkcollections.Dict())
+                    assert s not in x, \
+                        'duplicate bind={} for user="{}" other={}'.format(s, u, x[s])
+                    x[v2.bind] = v2
+        cls.__users_to_volumes = res
+        log.debug('__users_to_volumes: %s', pkdpretty(cls.__users_to_volumes))
+
 
     def __pool_for_user(self):
         u  = self.user.name
