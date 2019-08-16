@@ -9,10 +9,6 @@ c.JupyterHub.authenticator_class = 'jupyterhub.auth.PAMAuthenticator'
 
 c.Authenticator.admin_users = set(['vagrant'])
 
-# will need to be implemented by spawner
-c.Spawner.mem_limit = '1G'
-c.Spawner.cpu_limit = 0.5
-
 c.DockerSpawner.http_timeout = 120
 c.DockerSpawner.image = 'radiasoft/beamsim-jupyter'
 # needs to be true b/c create_object will invoke port bindings otherwise
@@ -33,13 +29,31 @@ c.RSDockerSpawner.cfg = '''{
             "hosts": [ "v3.radia.run" ],
             "min_activity_hours": 0.1,
             "servers_per_host": 1,
-            "users": [ ]
+            "user_groups": [ ]
         },
         "private": {
             "hosts": [ "v2.radia.run" ],
             "min_activity_hours": 1,
             "servers_per_host": 1,
-            "users": [ "vagrant" ]
+            "user_groups": [ "instructors" ]
+        }
+    },
+    "user_groups": {
+        "instructors": [ "vagrant" ]
+    },
+    "volumes": {
+        "''' + run_d + '''/user/{username}": {
+            "bind": "/home/vagrant/jupyter"
+        },
+        "''' + run_d + '''/workshop": {
+            "bind": "/home/vagrant/jupyter/workshop",
+            "mode": "ro"
+        },
+        "''' + run_d + '''/workshop/{username}": {
+            "bind": "/home/vagrant/jupyter/workshop/{username}",
+            "mode": {
+                "rw": [ "instructors" ]
+            }
         }
     }
 }'''
@@ -49,7 +63,8 @@ c.RSDockerSpawner.cfg = '''{
 
 c.JupyterHub.confirm_no_ssl = True
 c.JupyterHub.cookie_secret = base64.b64decode('qBdGBamOJTk5REgm7GUdsReB4utbp4g+vBja0SwY2IQojyCxA+CwzOV5dTyPJWvK13s61Yie0c/WDUfy8HtU2w==')
-c.JupyterHub.hub_ip = [i for i in public_ips() if i.startswith('10.10.')][0]
+# hardwired network for v*.radia.run
+c.JupyterHub.hub_ip = [i for i in public_ips() if i.startswith('10.10.10.')][0]
 c.JupyterHub.ip = '0.0.0.0'
 c.JupyterHub.port = 8000
 

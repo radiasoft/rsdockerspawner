@@ -49,6 +49,9 @@ ln -s -r $PWD/etc/jupyterhub_config.py run/jupyterhub_config.py
     cp cert.pem cacert.pem
 )
 
+sudo useradd --create-home participant
+echo participant:participant | sudo chpasswd
+
 (cd run && exec jupyterhub -f jupyterhub_config.py)
 # you may need to restart to chown
 sudo chown -R vagrant: run/user

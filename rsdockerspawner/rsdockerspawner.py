@@ -246,9 +246,9 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
     def __init_pools(cls, log):
         seen_user = pkcollections.Dict()
 
-        def _assert_user(c, n):
+        def _assert_user(users, n):
             # use copy
-            for u in c.users:
+            for u in users:
                 assert u not in seen_user, \
                     'Duplicate user {} in pools={}, {}'.format(
                         u,
@@ -261,7 +261,8 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
         for n, c in cls.__cfg.pools.items():
             p = copy.deepcopy(c)
             p.name = n
-            _assert_user(c, n)
+            p.users = cls.__users_for_groups(p.user_groups)
+            _assert_user(p.users, n)
             assert p.hosts, \
                 'No hosts in pool={}'.format(n)
             p.setdefault('mem_limit', None)
@@ -496,3 +497,11 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
             self.__slot.cname = None
         self.__slot = None
         self.__pools_dump()
+
+
+    @classmethod
+    def __users_for_groups(cls, groups):
+        res = set()
+        for g in groups:
+            res.update(cls.__cfg.user_groups[g])
+        return sorted(res)
