@@ -8,8 +8,6 @@ cd ~/src/jupyterhub
 gcl jupyterhub
 gcl dockerspawner
 cd jupyterhub
-# Version 0.9.4
-git checkout -b rn b1111363fd75ddd90a099e7db23ea1b769d2019e
 pip install -e .
 cd ../dockerspawner
 pip install -e .
@@ -22,21 +20,29 @@ npm install --no-save configurable-http-proxy
 rm -f ~/bin/configurable-http-proxy
 ln -s $PWD/node_modules/configurable-http-proxy/bin/configurable-http-proxy ~/bin
 docker pull radiasoft/beamsim-jupyter | cat
+if [[ ! -r ~/.ssh/id_ed25519 ]]; then
+    ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -q -N ''
+fi
 rm -rf run
 mkdir -p run/{docker_tls,user/vagrant}
 ln -s -r $PWD/etc/jupyterhub_config.py run/jupyterhub_config.py
 (
     set -euo pipefail
     cd run/docker_tls
-    mkdir localhost.localdomain
-    cd localhost.localdomain
+    mkdir -p v3.radia.run
+    cd v3.radia.run
     for i in cert.pem key.pem; do
         sudo cat /etc/docker/tls/$i > $i
     done
     cp cert.pem cacert.pem
     cd ..
-    mkdir v2.radia.run
+    mkdir -p v2.radia.run
     cd v2.radia.run
+    if ! ssh v2.radia.run true; then
+        echo "echo '$(cat /home/vagrant/.ssh/id_ed25519.pub)' >> ~/.ssh/authorized_keys"
+        echo 'chmod 600 ~/.ssh/authorized_keys'
+        read -p 'Continue? '
+    fi
     for i in cert.pem key.pem; do
         ssh v2.radia.run sudo cat /etc/docker/tls/$i > $i
     done
@@ -47,10 +53,11 @@ ln -s -r $PWD/etc/jupyterhub_config.py run/jupyterhub_config.py
 # you may need to restart to chown
 sudo chown -R vagrant: run/user
 
-# If you want to get access to a public server, you might need this
-socat TCP-LISTEN:8000,fork,reuseaddr TCP:v.radia.run:8000
+# Proxy port 8000 on the host in screen (not VM)
+socat TCP-LISTEN:8000,fork,reuseaddr TCP:v3.radia.run:8000
 # and updating iptables
 -A INPUT -i <DEV> -s <SOURCE> -p tcp -m state --state NEW -m tcp --match multiport --dports 8000 -j ACCEPT
+systemctl restart iptables
 
 # If you want to bypass authentication, modify jupyterhub.auth
 class PAMAuthenticator(LocalAuthenticator):
