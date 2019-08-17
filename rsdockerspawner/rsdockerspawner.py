@@ -63,16 +63,6 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
     __client = None
 
     @property
-    def volumes(self):
-        return {
-            '/home/vagrant/src/radiasoft/rsdockerspawner/run/user/{}'.format(self.escaped_name): {
-                'bind': '/home/vagrant/jupyter',
-                'mode': 'rw',
-            },
-        }
-
-
-    @property
     def client(self):
         if self.__client is None:
             self.__client = self.__docker_client(self.__slot.host)
@@ -126,6 +116,11 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
         yield self.__slot_alloc()
         yield super(RSDockerSpawner, self).pull_image(*args, **kwargs)
 
+    @property
+    def read_only_volumes(self):
+        """See `volumes`"""
+        return pkcollections.Dict()
+
     @tornado.gen.coroutine
     def remove_object(self, *args, **kwargs):
         if not self.__slot:
@@ -143,10 +138,26 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
         """Ensure the bind directories exist"""
         binds = super(RSDockerSpawner, self)._volumes_to_binds(*args, **kwargs)
         # POSIT: user running jupyterhub is also the jupyter user
-        for v in binds:
+        for v, x in binds.items():
             if not os.path.exists(v):
                 os.makedirs(v)
         return binds
+
+    @property
+    def volumes(self):
+        """Find volumes for user
+
+        _DEFAULT_VOLUME_USER will not override
+        """
+        res = pkcollections.Dict()
+        for n in self.user.name, _DEFAULT_VOLUME_USER:
+            if n not in self.__users_to_volumes:
+                continue
+            for s, v in self.__users_to_volumes[n].items():
+                if s not in res:
+                    res[s] = copy.deepcopy(v)
+        self.log.debug('user=%s volumes=%s', self.user.name, pkdpretty(res))
+        return res
 
     @classmethod
     def __docker_client(cls, host):
@@ -352,10 +363,9 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
                     x = res.setdefault(u, pkcollections.Dict())
                     assert s not in x, \
                         'duplicate bind={} for user="{}" other={}'.format(s, u, x[s])
-                    x[v2.bind] = v2
+                    x[s] = v2
         cls.__users_to_volumes = res
         log.debug('__users_to_volumes: %s', pkdpretty(cls.__users_to_volumes))
-
 
     def __pool_for_user(self):
         u  = self.user.name
