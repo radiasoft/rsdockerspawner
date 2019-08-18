@@ -33,7 +33,7 @@ _CPU_PERIOD_US = 100000
 _POOLS_DUMP_FILE = 'rsdockerspawner_pools.json'
 
 #: Name of the default pool, which must not have any users
-_DEFAULT_POOL_NAME = 'default'
+_DEFAULT_POOL = 'everybody'
 
 #: Large time out for minimum allowed activity (effectively infinite)
 _DEFAULT_MIN_ACTIVITY_HOURS = 1e6
@@ -41,8 +41,11 @@ _DEFAULT_MIN_ACTIVITY_HOURS = 1e6
 #: Minimum five mins so we don't garbage collect too frequently
 _MIN_MIN_ACTIVITY_SECS = 5.0 if pkconfig.channel_in_internal_test() else 300.0
 
-#: User that matches all volumes
-_DEFAULT_VOLUME_USER = '*'
+#: Group that matches all users ['*']
+_DEFAULT_USER_GROUP = 'everybody'
+
+#: User that won't match a legimate user
+_DEFAULT_USER = '*'
 
 
 class RSDockerSpawner(dockerspawner.DockerSpawner):
@@ -138,7 +141,7 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
         """Ensure the bind directories exist"""
         binds = super(RSDockerSpawner, self)._volumes_to_binds(*args, **kwargs)
         # POSIT: user running jupyterhub is also the jupyter user
-        for v, x in binds.items():
+        for v in binds:
             if not os.path.exists(v):
                 os.makedirs(v)
         return binds
@@ -147,16 +150,20 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
     def volumes(self):
         """Find volumes for user
 
-        _DEFAULT_VOLUME_USER will not override
+        _DEFAULT_USER_GROUP will not override user specific
+        volumes.
+
+        Returns:
+            dict: DockerSpawner volume map
         """
         res = pkcollections.Dict()
-        for n in self.user.name, _DEFAULT_VOLUME_USER:
+        for n in self.user.name, _DEFAULT_USER:
             if n not in self.__users_to_volumes:
                 continue
             for s, v in self.__users_to_volumes[n].items():
                 if s not in res:
                     res[s] = copy.deepcopy(v)
-        self.log.debug('user=%s volumes=%s', self.user.name, pkdpretty(res))
+        self.log.debug('user=%s volumes=%s', self.user.name, res)
         return res
 
     @classmethod
@@ -286,6 +293,13 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
         for n, c in cls.__cfg.pools.items():
             p = copy.deepcopy(c)
             p.name = n
+            if _DEFAULT_POOL == n:
+                assert not p.get('user_groups'), \
+                    'no user_groups allowed for default pool: user_groups={}'.format(
+                        p.user_groups,
+                    )
+                # users are not referenced, but convenient to model everybody
+                p.user_groups = [_DEFAULT_USER_GROUP]
             p.users = cls.__users_for_groups(p.user_groups)
             _assert_user(p.users, n)
             assert p.hosts, \
@@ -311,10 +325,10 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
                 len(p.slots),
                 len([x for x in p.slots if x.cname]),
             )
-        if _DEFAULT_POOL_NAME not in cls.__pools:
-            # Minimal configuration for default pool
-            cls.__pools[_DEFAULT_POOL_NAME] = pkcollections.Dict(
-                name=_DEFAULT_POOL_NAME,
+        if _DEFAULT_POOL not in cls.__pools:
+            # Minimal configuration for default pool, which matches nobody
+            cls.__pools[_DEFAULT_POOL] = pkcollections.Dict(
+                name=_DEFAULT_POOL,
                 slots=[],
             )
 
@@ -348,24 +362,24 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
 
     @classmethod
     def __init_volumes(cls, log):
-        res = pkcollections.Dict({_DEFAULT_VOLUME_USER: pkcollections.Dict()})
+        res = pkcollections.Dict({_DEFAULT_USER: pkcollections.Dict()})
         for s, v in cls.__cfg.volumes.items():
             if not ('mode' in v and isinstance(v.mode, dict)):
-                res[_DEFAULT_VOLUME_USER][s] = copy.deepcopy(v)
+                res[_DEFAULT_USER][s] = copy.deepcopy(v)
                 continue
+            # rw must be first
             for m in 'rw', 'ro':
                 v2 = copy.deepcopy(v)
                 if not m in v.mode:
                     continue
                 v2.mode = m
-                u2 = cls.__users_for_groups(v.mode.rw)
-                for u in u2 or [_DEFAULT_VOLUME_USER]:
+                for u in cls.__users_for_groups(v.mode[m]):
                     x = res.setdefault(u, pkcollections.Dict())
                     assert s not in x, \
                         'duplicate bind={} for user="{}" other={}'.format(s, u, x[s])
                     x[s] = v2
         cls.__users_to_volumes = res
-        log.debug('__users_to_volumes: %s', pkdpretty(cls.__users_to_volumes))
+        log.debug('__users_to_volumes: %s', cls.__users_to_volumes)
 
     def __pool_for_user(self):
         u  = self.user.name
@@ -373,7 +387,7 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
             if u in p.users:
                 break
         else:
-            p = self.__pools[_DEFAULT_POOL_NAME]
+            p = self.__pools[_DEFAULT_POOL]
         if len(p.slots) == 0:
             # If the slots are 0, then the pool is empty, and there
             # are no allocations for this user. This could be a config
@@ -547,6 +561,15 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
 
     @classmethod
     def __users_for_groups(cls, groups):
+        if not groups:
+            return [];
+        if _DEFAULT_USER_GROUP == groups[0]:
+            return [_DEFAULT_USER]
+        assert _DEFAULT_USER_GROUP not in groups, \
+            '{} must be the only user in user_groups=[{}]'.format(
+                _DEFAULT_USER_GROUP,
+                groups,
+            )
         res = set()
         for g in groups:
             res.update(cls.__cfg.user_groups[g])

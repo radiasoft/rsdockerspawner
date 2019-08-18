@@ -70,3 +70,12 @@ class PAMAuthenticator(LocalAuthenticator):
     def authenticate(...):
        if data['password'] == 'magic pass':
           return username
+
+
+NFS:
+on v3:
+echo '/home/vagrant/src 10.10.10.0/24(rw,no_root_squash,no_subtree_check,async,secure)' > /etc/exports.d/home_vagrant_src.exports
+exportfs -a
+
+On v2:
+echo 'v3.radia.run:/home/vagrant/src /home/vagrant/src nfs defaults,vers=4.1,soft,noacl,_netdev 0 0' | ssh v2.radia.run bash -c 'sudo cat >> /etc/fstab'

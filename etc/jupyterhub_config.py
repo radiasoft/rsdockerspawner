@@ -19,11 +19,10 @@ c.RSDockerSpawner.cfg = '''{
     "port_base": 8100,
     "tls_dir": "''' + run_d + '''/docker_tls",
     "pools": {
-        "default": {
+        "everybody": {
             "hosts": [ "v3.radia.run" ],
             "min_activity_hours": 0.1,
-            "servers_per_host": 1,
-            "user_groups": [ ]
+            "servers_per_host": 1
         },
         "private": {
             "hosts": [ "v2.radia.run" ],
@@ -41,7 +40,9 @@ c.RSDockerSpawner.cfg = '''{
         },
         "''' + run_d + '''/workshop": {
             "bind": "/home/vagrant/jupyter/workshop",
-            "mode": "ro"
+            "mode": {
+                "ro": [ "everybody" ]
+            }
         },
         "''' + run_d + '''/workshop/{username}": {
             "bind": "/home/vagrant/jupyter/workshop/{username}",
