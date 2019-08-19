@@ -15,7 +15,32 @@ c.DockerSpawner.image = 'radiasoft/beamsim-jupyter'
 c.DockerSpawner.use_internal_ip = True
 c.DockerSpawner.network_name = 'host'
 # POSIT: notebook_dir in containers/radiasoft/beamsim-jupyter/build.sh
+c.DockerSpawner.volumes = {
+    run_d + '/user/{username}': {
+        'bind': '/home/vagrant/jupyter',
+    },
+}
+
 c.RSDockerSpawner.cfg = '''{
+    "port_base": 8100,
+    "tls_dir": "''' + run_d + '''/docker_tls",
+    "pools": {
+        "default": {
+            "hosts": [ "v3.radia.run" ],
+            "min_activity_hours": 0.1,
+            "servers_per_host": 1,
+            "users": []
+        },
+        "private": {
+            "hosts": [ "v2.radia.run" ],
+            "min_activity_hours": 1,
+            "servers_per_host": 1,
+            "users": [ "vagrant" ]
+        }
+    }
+}'''
+
+'''{
     "port_base": 8100,
     "tls_dir": "''' + run_d + '''/docker_tls",
     "pools": {
