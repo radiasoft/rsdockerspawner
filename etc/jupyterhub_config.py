@@ -14,33 +14,32 @@ c.DockerSpawner.image = 'radiasoft/beamsim-jupyter'
 # needs to be true b/c create_object will invoke port bindings otherwise
 c.DockerSpawner.use_internal_ip = True
 c.DockerSpawner.network_name = 'host'
-# POSIT: notebook_dir in containers/radiasoft/beamsim-jupyter/build.sh
-c.DockerSpawner.volumes = {
-    run_d + '/user/{username}': {
-        'bind': '/home/vagrant/jupyter',
-    },
-}
+#DEPRECATED: # POSIT: notebook_dir in containers/radiasoft/beamsim-jupyter/build.sh
+#DEPRECATED: c.DockerSpawner.volumes = {
+#DEPRECATED:     run_d + '/user/{username}': {
+#DEPRECATED:         'bind': '/home/vagrant/jupyter',
+#DEPRECATED:     },
+#DEPRECATED: }
+#DEPRECATED: c.RSDockerSpawner.cfg = '''{
+#DEPRECATED:     "port_base": 8100,
+#DEPRECATED:     "tls_dir": "''' + run_d + '''/docker_tls",
+#DEPRECATED:     "pools": {
+#DEPRECATED:         "default": {
+#DEPRECATED:             "hosts": [ "v3.radia.run" ],
+#DEPRECATED:             "min_activity_hours": 0.1,
+#DEPRECATED:             "servers_per_host": 1,
+#DEPRECATED:             "users": []
+#DEPRECATED:         },
+#DEPRECATED:         "private": {
+#DEPRECATED:             "hosts": [ "v2.radia.run" ],
+#DEPRECATED:             "min_activity_hours": 1,
+#DEPRECATED:             "servers_per_host": 1,
+#DEPRECATED:             "users": [ "vagrant" ]
+#DEPRECATED:         }
+#DEPRECATED:     }
+#DEPRECATED: }'''
 
 c.RSDockerSpawner.cfg = '''{
-    "port_base": 8100,
-    "tls_dir": "''' + run_d + '''/docker_tls",
-    "pools": {
-        "default": {
-            "hosts": [ "v3.radia.run" ],
-            "min_activity_hours": 0.1,
-            "servers_per_host": 1,
-            "users": []
-        },
-        "private": {
-            "hosts": [ "v2.radia.run" ],
-            "min_activity_hours": 1,
-            "servers_per_host": 1,
-            "users": [ "vagrant" ]
-        }
-    }
-}'''
-
-'''{
     "port_base": 8100,
     "tls_dir": "''' + run_d + '''/docker_tls",
     "pools": {
