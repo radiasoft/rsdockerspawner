@@ -262,10 +262,10 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
                 if s and c['State'] == 'running':
                     if s.cname:
                         log.error(
-                            'init_containers: found cname=%s for slot=%s with cname=%s',
-                            n,
+                            'init_containers: duplicate assigned cname=%s in slot=%s (trying to assign cname=%s)',
                             s.num,
                             s.cname,
+                            n,
                         )
                     else:
                         s2 = cls.__slot_for_container(n)[0]
@@ -289,8 +289,8 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
                 log.info(
                     'init_containers: removing unallocated cname=%s cid=%s host=%s',
                     n,
-                    s.num,
-                    s.host,
+                    i,
+                    h,
                 )
                 try:
                     m = getattr(d, 'remove_container')
