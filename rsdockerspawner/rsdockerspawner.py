@@ -12,6 +12,7 @@ from pykern import pkio
 from pykern import pkjson
 from pykern.pkdebug import pkdp, pkdpretty
 import copy
+import datetime
 import docker
 import glob
 import os
@@ -556,6 +557,7 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
     @classmethod
     def __slot_assign(cls, slot, cname):
         slot.activity_secs = time.time()
+        slot.start_time = datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
         slot.cname = cname
 
     @classmethod
