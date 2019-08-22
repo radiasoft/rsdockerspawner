@@ -269,7 +269,7 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
                             n,
                         )
                     else:
-                        pool, s2 = cls.__slot_for_container(n)[0]
+                        s2 = cls.__slot_for_container(n)[1]
                         if s2:
                             log.error(
                                 'init_containers: another slot=%s for cname=%s so removing slot=%s host=%s',
