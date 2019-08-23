@@ -5,9 +5,15 @@ import os
 
 run_d = os.environ['PWD']
 c.JupyterHub.spawner_class = RSDockerSpawner
-c.JupyterHub.authenticator_class = 'jupyterhub.auth.PAMAuthenticator'
-
+c.JupyterHub.template_paths = [run_d + '/template']
 c.Authenticator.admin_users = set(['vagrant'])
+import jupyterhub.auth
+class _Auth(jupyterhub.auth.Authenticator):
+    async def authenticate(self, handler, data):
+        if data['password'] == 'jupyter':
+            return data['username']
+        return None
+c.JupyterHub.authenticator_class = _Auth
 
 c.DockerSpawner.http_timeout = 120
 c.DockerSpawner.image = 'radiasoft/beamsim-jupyter'
@@ -56,7 +62,7 @@ c.RSDockerSpawner.cfg = '''{
         }
     },
     "user_groups": {
-        "instructors": [ "vagrant" ]
+        "instructors": [ "vagrant", "participant" ]
     },
     "volumes": {
         "''' + run_d + '''/user/{username}": {
@@ -106,7 +112,3 @@ c.ConfigurableHTTPProxy.debug = True
 c.JupyterHub.log_level = 'DEBUG'
 c.LocalProcessSpawner.debug = True
 c.Spawner.debug = True
-
-# Testing only; Need a passwd for vagrant inside container for PAMAuthenticator
-#import subprocess
-#subprocess.check_call('echo vagrant:vagrant|chpasswd', shell=True)

@@ -26,6 +26,7 @@ fi
 rm -rf run
 mkdir -p run/{docker_tls,user/vagrant}
 ln -s -r $PWD/etc/jupyterhub_config.py run/jupyterhub_config.py
+mkdir -p run/template
 (
     set -euo pipefail
     cd run/docker_tls

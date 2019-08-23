@@ -94,11 +94,11 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
                 cpu_period=_CPU_PERIOD_US,
                 cpu_quota=int(float(_CPU_PERIOD_US) * self.cpu_limit),
             )
-        res = yield super(RSDockerSpawner, self).create_object(*args, **kwargs)
+        res = yield super().create_object(*args, **kwargs)
         return res
 
     def get_env(self, *args, **kwargs):
-        res  = super(RSDockerSpawner, self).get_env(*args, **kwargs)
+        res  = super().get_env(*args, **kwargs)
         res['RADIA_RUN_PORT'] = str(self.__slot.port)
         return res
 
@@ -110,7 +110,7 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
     def get_object(self, *args, **kwargs):
         if not (yield self.__slot_alloc(no_raise=True)):
             return None
-        res = yield super(RSDockerSpawner, self).get_object(*args, **kwargs)
+        res = yield super().get_object(*args, **kwargs)
         if not res:
             self.__slot_free()
         return res
@@ -118,7 +118,7 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
     @tornado.gen.coroutine
     def pull_image(self, *args, **kwargs):
         yield self.__slot_alloc()
-        yield super(RSDockerSpawner, self).pull_image(*args, **kwargs)
+        yield super().pull_image(*args, **kwargs)
 
     @property
     def read_only_volumes(self):
@@ -129,18 +129,18 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
     def remove_object(self, *args, **kwargs):
         if not self.__slot:
             return
-        yield super(RSDockerSpawner, self).remove_object(*args, **kwargs)
+        yield super().remove_object(*args, **kwargs)
         self.__slot_free()
 
     @tornado.gen.coroutine
     def stop_object(self, *args, **kwargs):
         if not self.__slot:
             return
-        yield super(RSDockerSpawner, self).stop_object(*args, **kwargs)
+        yield super().stop_object(*args, **kwargs)
 
     def _volumes_to_binds(self, *args, **kwargs):
         """Ensure the bind directories exist"""
-        binds = super(RSDockerSpawner, self)._volumes_to_binds(*args, **kwargs)
+        binds = super()._volumes_to_binds(*args, **kwargs)
         # POSIT: user running jupyterhub is also the jupyter user
         for v in binds:
             if not os.path.exists(v):
@@ -419,9 +419,10 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
             # are no allocations for this user. This could be a config
             # error, or it could be all the servers in the pool are
             # unavailable.
-            raise tornado.web.HTTPError(
+            raise _Error(
                 403,
-                'No servers have been allocated for this user.',
+                'You have not been allocated any servers.'
+                    + ' Please contact support@radiasoft.net.',
             )
         return p
 
@@ -544,12 +545,10 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
                         pool.name,
                         len(pool.slots),
                     )
-                    # copied from jupyter.handlers.base The error
-                    # message doesn't show up the first time, but will
-                    # show up if the user refreshes the browser.
-                    raise tornado.web.HTTPError(
+                    raise _Error(
                         429,
-                        'No more servers available. Try again in a few minutes.',
+                        'There are no more servers available.'
+                            + ' Please wait a few minutes before trying again.',
                     )
             self.__slot_assign(s, self.__cname())
             return s, pool
@@ -601,3 +600,9 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
         for g in groups:
             res.update(cls.__cfg.user_groups[g])
         return sorted(res)
+
+
+class _Error(tornado.web.HTTPError):
+    def __init__(self, code, msg):
+        super().__init__(code, msg)
+        self.jupyterhub_message = msg
