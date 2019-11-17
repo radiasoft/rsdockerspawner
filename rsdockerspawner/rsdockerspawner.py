@@ -107,7 +107,7 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
                 'Capabilities': [['gpu']],
                 'Options': {},
             }]
-        return super().docker(self._docker, method, *args, **kwargs)
+        return super().docker(method, *args, **kwargs)
 
     def get_env(self, *args, **kwargs):
         res  = super().get_env(*args, **kwargs)
