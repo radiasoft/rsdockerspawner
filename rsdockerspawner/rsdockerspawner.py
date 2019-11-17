@@ -332,7 +332,7 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
                 'No hosts in pool={}'.format(n)
             p.setdefault('mem_limit', None)
             p.setdefault('cpu_limit', None)
-            h = p.min_activity_hours or _DEFAULT_MIN_ACTIVITY_HOURS
+            h = p.get('min_activity_hours', _DEFAULT_MIN_ACTIVITY_HOURS)
             p.min_activity_secs = float(h) * 3600.
             assert p.min_activity_secs >= _MIN_MIN_ACTIVITY_SECS, \
                 'min_activity_hours={} must not be less than {}'.format(
