@@ -15,6 +15,15 @@ exec docker run "${flags[@]}" --init --rm "--user=$user" --network=host -v '/srv
     "${image_cmd[@]}"
 ```
 
+You may need something like this:
+
+```
+socat -d TCP-LISTEN:443,fork,reuseaddr TCP:v3.radia.run:443
+```
+
+And don't forget to modify iptables on the host.
+
+
 # License
 
 License: http://www.apache.org/licenses/LICENSE-2.0.html
