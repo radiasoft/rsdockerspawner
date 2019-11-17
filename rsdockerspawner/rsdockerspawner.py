@@ -97,6 +97,18 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
         res = yield super().create_object(*args, **kwargs)
         return res
 
+    def docker(self, method, *args, **kwargs):
+        if method == 'create_container' and self.__gpus:
+            # See https://github.com/sigurdkb/docker-py/blob/f5e11cdc6e3bd179312aceededf323cbb7cdc448/docker/types/containers.py#L529
+            kwargs['host_config']['DeviceRequests'] = [{
+                'Driver': '',
+                'Count': self.__gpus,
+                'DeviceIDs': None,
+                'Capabilities': [['gpu']],
+                'Options': {},
+            }]
+        return super().docker(self._docker, method, *args, **kwargs)
+
     def get_env(self, *args, **kwargs):
         res  = super().get_env(*args, **kwargs)
         res['RADIA_RUN_PORT'] = str(self.__slot.port)
@@ -525,6 +537,10 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
         self.__client = None
         self.mem_limit = pool.mem_limit
         self.cpu_limit = pool.cpu_limit
+        g = pool.get('gpus')
+        if g:
+            g = -1 if g == 'all' else int(g)
+        self.__gpus = g
         self.__pools_dump()
         return True
 
