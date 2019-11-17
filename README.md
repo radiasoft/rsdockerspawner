@@ -6,10 +6,13 @@ Learn more at https://github.com/radiasoft/rsdockerspawner.
 
 # Development
 
-Docker volumes for jupyterhub:
+To test in an rsconf config, modify `/srv/jupyterhub/start` as follows:
 
 ```
--v $HOME/src/radiasoft/rsdockerspawner/rsdockerspawner:/opt/conda/lib/python3.6/site-packages/rsdockerspawner
+exec docker run "${flags[@]}" --init --rm "--user=$user" --network=host -v '/srv/jupyterhub:/srv/jupyterhub' \
+    -v /home/vagrant/src/radiasoft/rsdockerspawner/rsdockerspawner:/opt/conda/lib/python3.6/site-packages/rsdockerspawner \
+    -v /home/vagrant/src/radiasoft/pykern/pykern:/opt/conda/lib/python3.6/site-packages/pykern \
+    "${image_cmd[@]}"
 ```
 
 # License
