@@ -1,12 +1,18 @@
-### rsdockerspawner
+# rsdockerspawner
 
 multi-node DockerSpawner
 
 Learn more at https://github.com/radiasoft/rsdockerspawner.
 
-Documentation: http://rsdockerspawner.readthedocs.org/en/latest/
+# Development
 
-#### License
+Docker volumes for jupyterhub:
+
+```
+-v $HOME/src/radiasoft/rsdockerspawner/rsdockerspawner:/opt/conda/lib/python3.6/site-packages/rsdockerspawner
+```
+
+# License
 
 License: http://www.apache.org/licenses/LICENSE-2.0.html
 
