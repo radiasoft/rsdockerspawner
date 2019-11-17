@@ -471,7 +471,7 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
     def __pools_dump(self):
         pools = copy.deepcopy(self.__pools)
         for p in pools.values():
-            del p['lock']
+            p.pkdel('lock')
         pkjson.dump_pretty(pools, filename=_POOLS_DUMP_FILE)
 
     @tornado.gen.coroutine
