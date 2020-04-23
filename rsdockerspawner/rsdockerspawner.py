@@ -10,7 +10,7 @@ from pykern import pkcollections
 from pykern import pkconfig
 from pykern import pkio
 from pykern import pkjson
-from pykern.pkdebug import pkdp, pkdpretty
+from pykern.pkdebug import pkdp, pkdpretty, pkdexc
 import copy
 import datetime
 import docker
@@ -79,8 +79,9 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
             'hostname': f'rs{self.__slot.num}.local',
             'labels': {_PORT_LABEL: str(self.__slot.port)},
         }
+        self.extra_host_config = dict(init=True)
         if self.cpu_limit:
-            self.extra_host_config = dict(
+            self.extra_host_config.update(
                 # The unreleased docker.py has "nano_cpus", which is --cpus * 1e9.
                 # Which gets converted to cpu_period and cpu_quota in Docker source:
                 # https://github.com/moby/moby/blob/ec87479/daemon/daemon_unix.go#L142
@@ -250,7 +251,7 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
             try:
                 d = cls.__docker_client(h)
             except docker.errors.DockerException as e:
-                log.error('Docker error on pool=%s host=%s: %s', pool.name, h, e)
+                log.error('Docker error on pool=%s host=%s stack=%s ', pool.name, h, pkdexc())
                 pool.hosts.remove(h)
                 for s in list(pool.slots):
                     if s.host == h:
