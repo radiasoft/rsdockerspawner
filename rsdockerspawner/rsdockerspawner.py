@@ -6,10 +6,10 @@ u"""Multi-host Docker execution with host networking
 """
 from __future__ import absolute_import, division, print_function
 from dockerspawner import dockerspawner
-from pykern import pkcollections
 from pykern import pkconfig
 from pykern import pkio
 from pykern import pkjson
+from pykern.pkcollections import PKDict
 from pykern.pkdebug import pkdp, pkdpretty, pkdexc
 import copy
 import datetime
@@ -60,9 +60,9 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
 
     __slot = None
 
-    __pools = pkcollections.Dict()
+    __pools = PKDict()
 
-    __cfg = pkcollections.Dict()
+    __cfg = PKDict()
 
     __client = None
 
@@ -80,6 +80,10 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
             'labels': {_PORT_LABEL: str(self.__slot.port)},
         }
         self.extra_host_config = dict(init=True)
+        if self.shm_size:
+            self.extra_host_config.update(
+                shm_size=self.shm_size,
+            )
         if self.cpu_limit:
             self.extra_host_config.update(
                 # The unreleased docker.py has "nano_cpus", which is --cpus * 1e9.
@@ -136,7 +140,7 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
     @property
     def read_only_volumes(self):
         """See `volumes`"""
-        return pkcollections.Dict()
+        return PKDict()
 
     @tornado.gen.coroutine
     def remove_object(self, *args, **kwargs):
@@ -170,7 +174,7 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
         Returns:
             dict: DockerSpawner volume map
         """
-        res = pkcollections.Dict()
+        res = PKDict()
         for n in self.user.name, _DEFAULT_USER:
             if n not in self.__users_to_volumes:
                 continue
@@ -194,6 +198,8 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
             ca_cert=str(d.join('cacert.pem')),
             verify=True,
         )
+        pkdp(k['tls'].ca_cert)
+        assert d.join('key.pem').exists(), '{}does not exist'.format(d.join('key.pem'))
         return docker.APIClient(**k)
 
     def __cname(self):
@@ -207,7 +213,7 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
         e = pools.default
         del pools['default']
         del e['users']
-        u = pkcollections.Dict()
+        u = PKDict()
         n = 1
         for p in pools.values():
             g = 'g{}'.format(n)
@@ -216,9 +222,9 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
             u[g] = p.users
             del p['users']
         # don't carry "trail
-        v2 = pkcollections.Dict()
+        v2 = PKDict()
         for k, v in volumes.items():
-            v2[k] = pkcollections.Dict(v)
+            v2[k] = PKDict(v)
         cfg.volumes = v2
         cfg.pools.everybody = e
         cfg.user_groups = u
@@ -315,7 +321,7 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
     @classmethod
     @tornado.gen.coroutine
     def __init_pools(cls, log):
-        seen_user = pkcollections.Dict()
+        seen_user = PKDict()
 
         def _assert_user(users, n):
             # use copy
@@ -343,8 +349,11 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
             _assert_user(p.users, n)
             assert p.hosts, \
                 'No hosts in pool={}'.format(n)
-            p.setdefault('mem_limit', None)
-            p.setdefault('cpu_limit', None)
+            p.pksetdefault(
+                cpu_limit=None,
+                mem_limit=None,
+                shm_size=None,
+            )
             h = p.get('min_activity_hours', _DEFAULT_MIN_ACTIVITY_HOURS)
             p.min_activity_secs = float(h) * 3600.
             assert p.min_activity_secs >= _MIN_MIN_ACTIVITY_SECS, \
@@ -366,7 +375,7 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
             )
         if _DEFAULT_POOL not in cls.__pools:
             # Minimal configuration for default pool, which matches nobody
-            cls.__pools[_DEFAULT_POOL] = pkcollections.Dict(
+            cls.__pools[_DEFAULT_POOL] = PKDict(
                 name=_DEFAULT_POOL,
                 slots=[],
             )
@@ -385,7 +394,7 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
         for h in pool.hosts:
             for p in range(c.port_base, c.port_base + pool.servers_per_host):
                 res.append(
-                    pkcollections.Dict(
+                    PKDict(
                         activity_secs=0.,
                         cname=None,
                         host=h,
@@ -401,7 +410,7 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
 
     @classmethod
     def __init_volumes(cls, log):
-        res = pkcollections.Dict({_DEFAULT_USER: pkcollections.Dict()})
+        res = PKDict({_DEFAULT_USER: PKDict()})
         for s, v in cls.__cfg.volumes.items():
             if not ('mode' in v and isinstance(v.mode, dict)):
                 res[_DEFAULT_USER][s] = copy.deepcopy(v)
@@ -413,7 +422,7 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
                     continue
                 v2.mode = m
                 for u in cls.__users_for_groups(v.mode[m]):
-                    x = res.setdefault(u, pkcollections.Dict())
+                    x = res.setdefault(u, PKDict())
                     assert s not in x, \
                         'duplicate bind={} for user="{}" other={}'.format(s, u, x[s])
                     x[s] = v2
@@ -536,8 +545,9 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
             )
         self.__slot = s
         self.__client = None
-        self.mem_limit = pool.mem_limit
         self.cpu_limit = pool.cpu_limit
+        self.mem_limit = pool.mem_limit
+        self.shm_size = pool.shm_size
         g = pool.get('gpus')
         if g:
             g = -1 if g == 'all' else int(g)
