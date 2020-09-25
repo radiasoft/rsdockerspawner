@@ -629,6 +629,45 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
         return sorted(res)
 
 
+    @tornado.gen.coroutine
+    def start(self, *args, **kwargs):
+        """copied from dockerspawner and trimmed"""
+        yield self.pull_image(self.image)
+        obj = yield self.get_object()
+        if obj:
+            self.log.info(
+                "Removing existing %s: %s (id: %s)",
+                self.object_type,
+                self.object_name,
+                self.object_id[:7],
+            )
+            yield self.remove_object()
+            for _ in range(10):
+                obj = yield self.get_object()
+                if not obj:
+                    break
+                tornado.gen.sleep(1)
+            else:
+                self.log.error(
+                    "Remove failed %s: %s (id: %s); will try to start anyway",
+                    self.object_type,
+                    self.object_name,
+                    self.object_id[:7],
+                )
+        obj = yield self.create_object()
+        self.object_id = obj[self.object_id_key]
+        self.log.info(
+            "Starting %s %s (id: %s) from image %s",
+            self.object_type,
+            self.object_name,
+            self.object_id[:7],
+            self.image,
+        )
+        yield self.start_object()
+        ip, port = yield self.get_ip_and_port()
+        return (ip, port)
+
+
 class _Error(tornado.web.HTTPError):
     def __init__(self, code, msg):
         super().__init__(code, msg)
