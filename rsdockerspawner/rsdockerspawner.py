@@ -335,10 +335,16 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
                 seen_user[u] = n
 
         slot_base = 1
-        for n, c in cls.__cfg.pools.items():
-            p = copy.deepcopy(c)
+        x = copy.deepcopy(cls.__cfg.pools)
+        if _DEFAULT_POOL not in x:
+            # Minimal configuration for default pool, which matches nobody
+            x[_DEFAULT_POOL] = PKDict(
+                hosts=[],
+            )
+        for n, p in x.items():
             p.name = n
-            if _DEFAULT_POOL == n:
+            is_default = _DEFAULT_POOL == n
+            if is_default:
                 assert not p.get('user_groups'), \
                     'no user_groups allowed for default pool: user_groups={}'.format(
                         p.user_groups,
@@ -347,7 +353,7 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
                 p.user_groups = [_DEFAULT_USER_GROUP]
             p.users = cls.__users_for_groups(p.user_groups)
             _assert_user(p.users, n)
-            assert p.hosts, \
+            assert p.hosts or is_default, \
                 'No hosts in pool={}'.format(n)
             p.pksetdefault(
                 cpu_limit=None,
@@ -372,12 +378,6 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
                 ' '.join(p.hosts),
                 len(p.slots),
                 len([x for x in p.slots if x.cname]),
-            )
-        if _DEFAULT_POOL not in cls.__pools:
-            # Minimal configuration for default pool, which matches nobody
-            cls.__pools[_DEFAULT_POOL] = PKDict(
-                name=_DEFAULT_POOL,
-                slots=[],
             )
 
     @classmethod
