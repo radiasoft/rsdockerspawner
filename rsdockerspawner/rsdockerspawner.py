@@ -557,6 +557,26 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
 
     @tornado.gen.coroutine
     def __slot_alloc_try(self, no_raise):
+        def _no_slots(pool):
+            if pool.hosts:
+                self.log.warn(
+                    'slot_alloc_try: no more servers, pool=%s slots_in_use=%s',
+                    pool.name,
+                    len(pool.slots),
+                )
+                raise _Error(
+                    429,
+                    'There are no more servers available for'
+                        + ' Sirepo Basic Users. Upgrade to'
+                        + ' Sirepo Premium or try again later.',
+                )
+            self.log.warn('unverified-user=%s', self.user_name)
+            raise _Error(
+                429,
+                'Your account needs to be verified by our team.'
+                    + ' Please look for an email from support@radiasoft.net',
+            )
+
         pool = self.__pool_for_user()
         with (yield pool.lock.acquire()):
             for s in pool.slots:
@@ -567,16 +587,7 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
                     return None, None
                 s = yield self.__pool_gc(pool)
                 if not s:
-                    self.log.warn(
-                        'slot_alloc_try: no more servers, pool=%s slots_in_use=%s',
-                        pool.name,
-                        len(pool.slots),
-                    )
-                    raise _Error(
-                        429,
-                        'There are no more servers available.'
-                            + ' Please wait a few minutes before trying again.',
-                    )
+                    _no_slots(pool)
             self.__slot_assign(s, self.__cname())
             return s, pool
 
