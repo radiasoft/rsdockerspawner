@@ -5,7 +5,7 @@ import os
 
 run_d = os.environ['PWD']
 c.JupyterHub.spawner_class = RSDockerSpawner
-c.JupyterHub.template_paths = [run_d + '/template']
+c.JupyterHub.template_paths = [RSDockerSpawner.sirepo_template_dir()]
 c.Authenticator.admin_users = set(['vagrant'])
 import jupyterhub.auth
 class _Auth(jupyterhub.auth.Authenticator):
@@ -25,12 +25,12 @@ c.RSDockerSpawner.cfg = '''{
     "tls_dir": "''' + run_d + '''/docker_tls",
     "pools": {
         "everybody": {
-            "hosts": [ "v3.radia.run" ],
+            "hosts": [ ],
             "min_activity_hours": 0.1,
             "servers_per_host": 1
         },
         "private": {
-            "hosts": [ "v2.radia.run" ],
+            "hosts": [ "localhost.localdomain" ],
             "min_activity_hours": 1,
             "servers_per_host": 1,
             "user_groups": [ "instructors" ]
@@ -61,6 +61,7 @@ c.RSDockerSpawner.cfg = '''{
 # this doesn't seem to work
 # c.JupyerHub.active_server_limit = 2
 
+#c.JupyterHub.template_vars = {'announcement': 'some_text'}
 c.JupyterHub.confirm_no_ssl = True
 c.JupyterHub.cookie_secret = base64.b64decode('qBdGBamOJTk5REgm7GUdsReB4utbp4g+vBja0SwY2IQojyCxA+CwzOV5dTyPJWvK13s61Yie0c/WDUfy8HtU2w==')
 # hardwired network for v*.radia.run

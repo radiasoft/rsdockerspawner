@@ -8,7 +8,7 @@ from __future__ import absolute_import, division, print_function
 from dockerspawner import dockerspawner
 from pykern import pkconfig
 from pykern import pkio
-from pykern import pkjson
+from pykern import pkjson, pkresource
 from pykern.pkcollections import PKDict
 from pykern.pkdebug import pkdp, pkdpretty, pkdexc
 import copy
@@ -148,6 +148,10 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
             return
         yield super().remove_object(*args, **kwargs)
         self.__slot_free()
+
+    @classmethod
+    def sirepo_template_dir(cls):
+        return pkresource.filename('template')
 
     @tornado.gen.coroutine
     def stop_object(self, *args, **kwargs):
@@ -441,10 +445,11 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
             # are no allocations for this user. This could be a config
             # error, or it could be all the servers in the pool are
             # unavailable.
+            self.log.warn('unverified-user=%s', self.user.name)
             raise _Error(
                 403,
-                'You have not been allocated any servers.'
-                    + ' Please contact support@radiasoft.net.',
+                'sirepo-unverified: Your Sirepo account needs to be verified by our team.'
+                    + ' Please look for an email from support@radiasoft.net',
             )
         return p
 
@@ -557,6 +562,20 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
 
     @tornado.gen.coroutine
     def __slot_alloc_try(self, no_raise):
+        def _no_slots(pool):
+            self.log.warn(
+                'slot_alloc_try: no more servers, pool=%s slots_in_use=%s user=%s',
+                pool.name,
+                len(pool.slots),
+                self.user.name,
+            )
+            raise _Error(
+                429,
+                'sirepo-basic: There are no more servers available for'
+                    + ' Sirepo Basic Users. Upgrade to'
+                    + ' Sirepo Premium or try again later.',
+            )
+
         pool = self.__pool_for_user()
         with (yield pool.lock.acquire()):
             for s in pool.slots:
@@ -567,16 +586,7 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
                     return None, None
                 s = yield self.__pool_gc(pool)
                 if not s:
-                    self.log.warn(
-                        'slot_alloc_try: no more servers, pool=%s slots_in_use=%s',
-                        pool.name,
-                        len(pool.slots),
-                    )
-                    raise _Error(
-                        429,
-                        'There are no more servers available.'
-                            + ' Please wait a few minutes before trying again.',
-                    )
+                    _no_slots(pool)
             self.__slot_assign(s, self.__cname())
             return s, pool
 
