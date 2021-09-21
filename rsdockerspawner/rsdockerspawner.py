@@ -257,6 +257,7 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
     def __init_containers(cls, pool, log):
         c = None
         hosts_copy = pool.hosts[:]
+        previous_slots = cls.__slots_from_dump_file()
         for h in hosts_copy:
             try:
                 d = cls.__docker_client(h)
@@ -308,7 +309,7 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
                                 s.num,
                                 s.host,
                             )
-                            cls.__slot_assign(s, n)
+                            cls.__slot_assign(s, n, previous_slot=previous_slots[n])
                             continue
                 log.info(
                     'init_containers: removing unallocated cname=%s cid=%s host=%s',
@@ -527,8 +528,6 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
                 yield self.__init_class()
         pool, s = self.__slot_for_container(n)
         if s:
-            # Ensures pool_gc doesn't select this slot
-            s.activity_secs = time.time()
             self.log.info(
                 'slot_alloc: found slot=%s cname=%s pool=%s host=%s',
                 s.num,
@@ -591,9 +590,14 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
             return s, pool
 
     @classmethod
-    def __slot_assign(cls, slot, cname):
-        slot.activity_secs = time.time()
-        slot.start_time = datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
+    def __slot_assign(cls, slot, cname, previous_slot=None):
+        a = time.time()
+        s = datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
+        if previous_slot:
+            a = previous_slot.activity_secs
+            s = previous_slot.start_time
+        slot.activity_secs = a
+        slot.start_time = s
         slot.cname = cname
 
     @classmethod
@@ -621,6 +625,17 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
         self.__slot = None
         self.__pools_dump()
 
+    @classmethod
+    def __slots_from_dump_file(cls):
+        p = pkio.py_path(_POOLS_DUMP_FILE)
+        if not p.exists():
+            return PKDict()
+        slots = PKDict()
+        for v in pkjson.load_any(p).values():
+            if isinstance(v, dict) and 'slots' in v:
+                for s in v.slots:
+                    slots[s.cname] = s
+        return slots
 
     @classmethod
     def __users_for_groups(cls, groups):
