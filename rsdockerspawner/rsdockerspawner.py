@@ -309,7 +309,7 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
                                 s.num,
                                 s.host,
                             )
-                            cls.__slot_assign(s, n, previous_slot=previous_slots[n])
+                            cls.__slot_assign(s, n, previous_slot=previous_slots.get(n))
                             continue
                 log.info(
                     'init_containers: removing unallocated cname=%s cid=%s host=%s',
