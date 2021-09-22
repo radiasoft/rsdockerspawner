@@ -591,14 +591,13 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
 
     @classmethod
     def __slot_assign(cls, slot, cname, previous_slot=None):
-        a = time.time()
-        s = datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
-        if previous_slot:
-            a = previous_slot.activity_secs
-            s = previous_slot.start_time
-        slot.activity_secs = a
-        slot.start_time = s
         slot.cname = cname
+        if previous_slot:
+            slot.activity_secs = previous_slot.activity_secs
+            slot.start_time = previous_slot.start_time
+        else:
+            slot.activity_secs = time.time()
+            slot.start_time = datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
 
     @classmethod
     def __slot_for_container(cls, cname):
