@@ -254,10 +254,9 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
 
     @classmethod
     @tornado.gen.coroutine
-    def __init_containers(cls, pool, log):
+    def __init_containers(cls, pool, log, slots_from_dump):
         c = None
         hosts_copy = pool.hosts[:]
-        previous_slots = cls.__slots_from_dump_file()
         for h in hosts_copy:
             try:
                 d = cls.__docker_client(h)
@@ -286,6 +285,7 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
                 )
                 if s and c['State'] == 'running':
                     if s.cname:
+                        # Duplicate containers with the same _PORT_LABEL
                         log.error(
                             'init_containers: duplicate assigned cname=%s in slot=%s (trying to assign cname=%s)',
                             s.num,
@@ -295,6 +295,7 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
                     else:
                         s2 = cls.__slot_for_container(n)[1]
                         if s2:
+                            # n exists in another pool?
                             log.error(
                                 'init_containers: another slot=%s for cname=%s so removing slot=%s host=%s',
                                 s2.num,
@@ -309,7 +310,11 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
                                 s.num,
                                 s.host,
                             )
-                            cls.__slot_assign(s, n, previous_slot=previous_slots.get(n))
+                            cls.__slot_assign(
+                                s,
+                                n,
+                                previous_slot=slots_from_dump.get(n),
+                            )
                             continue
                 log.info(
                     'init_containers: removing unallocated cname=%s cid=%s host=%s',
@@ -376,7 +381,11 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
             p.lock = tornado.locks.Lock()
             slot_base += len(p.slots)
             cls.__pools[n] = p
-            yield cls.__init_containers(p, log)
+            yield cls.__init_containers(
+                p,
+                log,
+                slots_from_dump=cls.__slots_from_dump(n),
+            )
             log.info(
                 'pool=%s hosts=%s slots=%s slots_in_use=%s',
                 n,
@@ -625,15 +634,15 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
         self.__pools_dump()
 
     @classmethod
-    def __slots_from_dump_file(cls):
+    def __slots_from_dump(cls, pool_name):
         p = pkio.py_path(_POOLS_DUMP_FILE)
         if not p.exists():
             return PKDict()
         slots = PKDict()
-        for v in pkjson.load_any(p).values():
-            if isinstance(v, dict) and 'slots' in v:
-                for s in v.slots:
-                    slots[s.cname] = s
+        for s in pkjson.load_any(p).pkunchecked_nested_get(
+                f'{pool_name}.slots',
+        ) or []:
+                slots[s.cname] = s
         return slots
 
     @classmethod
