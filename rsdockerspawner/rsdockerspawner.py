@@ -351,6 +351,10 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
             return
         import resource
 
+        if not pool.get('servers_per_host', 0):
+            pool.pids_limit = None
+            return
+
         # Always the soft limit [0] for ordinary users
         pool.pids_limit = (
             (resource.getrlimit(resource.RLIMIT_NPROC)[0] - _MIN_NPROC_AVAIL)
