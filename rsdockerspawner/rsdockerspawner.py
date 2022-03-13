@@ -45,8 +45,19 @@ _DEFAULT_MIN_ACTIVITY_HOURS = 1e6
 #: Minimum five mins so we don't garbage collect too frequently
 _MIN_MIN_ACTIVITY_SECS = 5.0 if pkconfig.channel_in_internal_test() else 300.0
 
+#: Minimum number of processes available to the user not running in Jupyter
+_MIN_NPROC_AVAIL = 512
+
 #: User that won't match a legimate user
 _DEFAULT_USER = '*'
+
+#: Parameters set in create_object
+_EXTRA_HOST_CONFIG = (
+    'cpu_period',
+    'cpu_quota',
+    'pids_limit',
+    'shm_size',
+)
 
 
 class RSDockerSpawner(dockerspawner.DockerSpawner):
@@ -80,25 +91,10 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
             'labels': {_PORT_LABEL: str(self.__slot.port)},
         }
         self.extra_host_config = dict(init=True)
-        if self.shm_size:
-            self.extra_host_config.update(
-                shm_size=self.shm_size,
-            )
-        if self.cpu_limit:
-            self.extra_host_config.update(
-                # The unreleased docker.py has "nano_cpus", which is --cpus * 1e9.
-                # Which gets converted to cpu_period and cpu_quota in Docker source:
-                # https://github.com/moby/moby/blob/ec87479/daemon/daemon_unix.go#L142
-                # Also read this:
-                # https://www.kernel.org/doc/Documentation/scheduler/sched-bwc.txt
-                # You can see the values with:
-                # id=$(docker inspect --format='{{.Id}}' jupyter-vagrant)
-                # fs=/sys/fs/cgroup/cpu/docker/$id
-                # cat $fs/cpu.cfs_period_us
-                # cat $fs/cpu.cfs_quota_us
-                cpu_period=_CPU_PERIOD_US,
-                cpu_quota=int(float(_CPU_PERIOD_US) * self.cpu_limit),
-            )
+        for x in _EXTRA_HOST_CONFIG:
+            y = getattr(self, x)
+            if y is not None:
+                self.extra_host_config[x] = y
         res = yield super().create_object(*args, **kwargs)
         return res
 
@@ -328,6 +324,38 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
                 except Exception as e:
                     log.error('init_containers: remove cid=%s failed: %s', i, e)
 
+
+    @classmethod
+    def __init_cpu_quota(cls, pool):
+        if pool.cpu_limit is None:
+            pool.pkupdate(cpu_quota=None, cpu_period=None)
+            return
+        # The unreleased docker.py has "nano_cpus", which is --cpus * 1e9.
+        # Which gets converted to cpu_period and cpu_quota in Docker source:
+        # https://github.com/moby/moby/blob/ec87479/daemon/daemon_unix.go#L142
+        # Also read this:
+        # https://www.kernel.org/doc/Documentation/scheduler/sched-bwc.txt
+        # You can see the values with:
+        # id=$(docker inspect --format='{{.Id}}' jupyter-vagrant)
+        # fs=/sys/fs/cgroup/cpu/docker/$id
+        # cat $fs/cpu.cfs_period_us
+        # cat $fs/cpu.cfs_quota_us
+        pool.pkupdate(
+            cpu_period=_CPU_PERIOD_US,
+            cpu_quota=int(float(_CPU_PERIOD_US) * pool.cpu_limit),
+        )
+
+    @classmethod
+    def __init_pids_limit(cls, pool):
+        if 'pids_limit' in pool:
+            return
+        import resource
+
+        # Always the soft limit [0] for ordinary users
+        pool.pids_limit = (
+            (resource.getrlimit(resource.RLIMIT_NPROC)[0] - _MIN_NPROC_AVAIL)
+        ) // pool.servers_per_host
+
     @classmethod
     @tornado.gen.coroutine
     def __init_pools(cls, log):
@@ -370,6 +398,9 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
                 mem_limit=None,
                 shm_size=None,
             )
+            cls.__init_pids_limit(p)
+            cls.__init_cpu_quota(p)
+
             h = p.get('min_activity_hours', _DEFAULT_MIN_ACTIVITY_HOURS)
             p.min_activity_secs = float(h) * 3600.
             assert p.min_activity_secs >= _MIN_MIN_ACTIVITY_SECS, \
@@ -387,7 +418,7 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
                 slots_from_dump=cls.__slots_from_dump(n),
             )
             log.info(
-                'pool=%s hosts=%s slots=%s slots_in_use=%s',
+                'pool=%d hosts=%s slots=%d slots_in_use=%d',
                 n,
                 ' '.join(p.hosts),
                 len(p.slots),
@@ -558,9 +589,10 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
             )
         self.__slot = s
         self.__client = None
-        self.cpu_limit = pool.cpu_limit
+        # understood by dockerspawner so not needed in extra_host_config
         self.mem_limit = pool.mem_limit
-        self.shm_size = pool.shm_size
+        for x in _EXTRA_HOST_CONFIG:
+            setattr(self, x, pool[x])
         g = pool.get('gpus')
         if g:
             g = -1 if g == 'all' else int(g)
