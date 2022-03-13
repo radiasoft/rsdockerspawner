@@ -418,7 +418,7 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
                 slots_from_dump=cls.__slots_from_dump(n),
             )
             log.info(
-                'pool=%d hosts=%s slots=%d slots_in_use=%d',
+                'pool=%s hosts=%s slots=%d slots_in_use=%d',
                 n,
                 ' '.join(p.hosts),
                 len(p.slots),
