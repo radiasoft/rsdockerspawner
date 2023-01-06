@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-u"""Multi-host Docker execution with host networking
+"""Multi-host Docker execution with host networking
 
 :copyright: Copyright (c) 2019 RadiaSoft LLC.  All Rights Reserved.
 :license: http://www.apache.org/licenses/LICENSE-2.0.html
@@ -25,16 +25,16 @@ import traitlets
 
 
 #: container label for jupyter port
-_PORT_LABEL = 'rsdockerspawner_port'
+_PORT_LABEL = "rsdockerspawner_port"
 
 #: CPU Fair Scheduler (CFS) period (see below)
 _CPU_PERIOD_US = 100000
 
 #: dump the slots whenever an update happens
-_POOLS_DUMP_FILE = 'rsdockerspawner_pools.json'
+_POOLS_DUMP_FILE = "rsdockerspawner_pools.json"
 
 #: Default user when no specific volume for user ['*']
-_DEFAULT_USER_GROUP = 'everybody'
+_DEFAULT_USER_GROUP = "everybody"
 
 #: Name of the default pool when no user patches
 _DEFAULT_POOL = _DEFAULT_USER_GROUP
@@ -49,14 +49,14 @@ _MIN_MIN_ACTIVITY_SECS = 5.0 if pkconfig.channel_in_internal_test() else 300.0
 _MIN_NPROC_AVAIL = 512
 
 #: User that won't match a legimate user
-_DEFAULT_USER = '*'
+_DEFAULT_USER = "*"
 
 #: Parameters set in create_object
 _EXTRA_HOST_CONFIG = (
-    'cpu_period',
-    'cpu_quota',
-    'pids_limit',
-    'shm_size',
+    "cpu_period",
+    "cpu_quota",
+    "pids_limit",
+    "shm_size",
 )
 
 
@@ -87,8 +87,8 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
     def create_object(self, *args, **kwargs):
         yield self.__slot_alloc()
         self.extra_create_kwargs = {
-            'hostname': f'rs{self.__slot.num}.local',
-            'labels': {_PORT_LABEL: str(self.__slot.port)},
+            "hostname": f"rs{self.__slot.num}.local",
+            "labels": {_PORT_LABEL: str(self.__slot.port)},
         }
         self.extra_host_config = dict(init=True)
         for x in _EXTRA_HOST_CONFIG:
@@ -99,20 +99,22 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
         return res
 
     def docker(self, method, *args, **kwargs):
-        if method == 'create_container' and self.__gpus:
+        if method == "create_container" and self.__gpus:
             # See https://github.com/sigurdkb/docker-py/blob/f5e11cdc6e3bd179312aceededf323cbb7cdc448/docker/types/containers.py#L529
-            kwargs['host_config']['DeviceRequests'] = [{
-                'Driver': '',
-                'Count': self.__gpus,
-                'DeviceIDs': None,
-                'Capabilities': [['gpu']],
-                'Options': {},
-            }]
+            kwargs["host_config"]["DeviceRequests"] = [
+                {
+                    "Driver": "",
+                    "Count": self.__gpus,
+                    "DeviceIDs": None,
+                    "Capabilities": [["gpu"]],
+                    "Options": {},
+                }
+            ]
         return super().docker(method, *args, **kwargs)
 
     def get_env(self, *args, **kwargs):
-        res  = super().get_env(*args, **kwargs)
-        res['RADIA_RUN_PORT'] = str(self.__slot.port)
+        res = super().get_env(*args, **kwargs)
+        res["RADIA_RUN_PORT"] = str(self.__slot.port)
         return res
 
     @tornado.gen.coroutine
@@ -147,7 +149,7 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
 
     @classmethod
     def sirepo_template_dir(cls):
-        return pkresource.filename('template')
+        return pkresource.filename("template")
 
     @tornado.gen.coroutine
     def stop_object(self, *args, **kwargs):
@@ -181,46 +183,45 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
             for s, v in self.__users_to_volumes[n].items():
                 if s not in res:
                     res[s] = copy.deepcopy(v)
-        self.log.debug('user=%s volumes=%s', self.user.name, res)
+        self.log.debug("user=%s volumes=%s", self.user.name, res)
         return self._volumes_to_binds(res, {})
 
     @classmethod
     def __docker_client(cls, host):
         k = {
-            'version': 'auto',
-            'base_url': 'tcp://{}:2376'.format(host),
+            "version": "auto",
+            "base_url": "tcp://{}:2376".format(host),
         }
         d = cls.__cfg.tls_dir.join(host)
-        assert d.check(dir=True), \
-            f'tls_dir/<host> does not exist: {d}'
-        k['tls'] = docker.tls.TLSConfig(
-            client_cert=(str(d.join('cert.pem')), str(d.join('key.pem'))),
-            ca_cert=str(d.join('cacert.pem')),
+        assert d.check(dir=True), f"tls_dir/<host> does not exist: {d}"
+        k["tls"] = docker.tls.TLSConfig(
+            client_cert=(str(d.join("cert.pem")), str(d.join("key.pem"))),
+            ca_cert=str(d.join("cacert.pem")),
             verify=True,
         )
-        pkdp(k['tls'].ca_cert)
-        assert d.join('key.pem').exists(), '{}does not exist'.format(d.join('key.pem'))
+        pkdp(k["tls"].ca_cert)
+        assert d.join("key.pem").exists(), "{}does not exist".format(d.join("key.pem"))
         return docker.APIClient(**k)
 
     def __cname(self):
-        return '/' + self.object_name
+        return "/" + self.object_name
 
     @classmethod
     def __fixup_cfg(cls, cfg, volumes):
-        pools = cfg.get('pools')
-        if not pools or 'default' not in pools:
+        pools = cfg.get("pools")
+        if not pools or "default" not in pools:
             return cfg
         e = pools.default
-        del pools['default']
-        del e['users']
+        del pools["default"]
+        del e["users"]
         u = PKDict()
         n = 1
         for p in pools.values():
-            g = 'g{}'.format(n)
+            g = "g{}".format(n)
             n += 1
-            p.user_groups = [ g ]
+            p.user_groups = [g]
             u[g] = p.users
-            del p['users']
+            del p["users"]
         # don't carry "trail
         v2 = PKDict()
         for k, v in volumes.items():
@@ -238,11 +239,9 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
                 return
             # easiest way to access config generated by rsconf shared by instances
             cls.__cfg.update(cls.__fixup_cfg(pkjson.load_any(self.cfg), self.volumes))
-            assert cls.__cfg.pools, \
-                'No pools in cfg'
+            assert cls.__cfg.pools, "No pools in cfg"
             d = pkio.py_path(cls.__cfg.tls_dir)
-            assert d.check(dir=True), \
-                'tls_dir={} does not exist'.format(d)
+            assert d.check(dir=True), "tls_dir={} does not exist".format(d)
             cls.__cfg.tls_dir = d
             cls.__init_volumes(self.log)
             yield cls.__init_pools(self.log)
@@ -257,33 +256,35 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
             try:
                 d = cls.__docker_client(h)
             except docker.errors.DockerException as e:
-                log.error('Docker error on pool=%s host=%s stack=%s ', pool.name, h, pkdexc())
+                log.error(
+                    "Docker error on pool=%s host=%s stack=%s ", pool.name, h, pkdexc()
+                )
                 pool.hosts.remove(h)
                 for s in list(pool.slots):
                     if s.host == h:
                         pool.slots.remove(s)
                 continue
             for c in d.containers(all=True):
-                if _PORT_LABEL not in c['Labels']:
+                if _PORT_LABEL not in c["Labels"]:
                     # not ours
                     continue
-                p = int(c['Labels'][_PORT_LABEL])
-                n = c['Names'][0]
-                i = c['Id']
+                p = int(c["Labels"][_PORT_LABEL])
+                n = c["Names"][0]
+                i = c["Id"]
                 s = cls.__init_slot_find(pool, h, p)
                 log.info(
-                    'init_containers: found slot=%s for cname=%s cid=%s host=%s port=%s',
+                    "init_containers: found slot=%s for cname=%s cid=%s host=%s port=%s",
                     s and s.num,
                     n,
                     i,
                     h,
                     p,
                 )
-                if s and c['State'] == 'running':
+                if s and c["State"] == "running":
                     if s.cname:
                         # Duplicate containers with the same _PORT_LABEL
                         log.error(
-                            'init_containers: duplicate assigned cname=%s in slot=%s (trying to assign cname=%s)',
+                            "init_containers: duplicate assigned cname=%s in slot=%s (trying to assign cname=%s)",
                             s.num,
                             s.cname,
                             n,
@@ -293,7 +294,7 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
                         if s2:
                             # n exists in another pool?
                             log.error(
-                                'init_containers: another slot=%s for cname=%s so removing slot=%s host=%s',
+                                "init_containers: another slot=%s for cname=%s so removing slot=%s host=%s",
                                 s2.num,
                                 n,
                                 s.num,
@@ -301,7 +302,7 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
                             )
                         else:
                             log.info(
-                                'init_containers: assigning cname=%s to slot=%s host=%s',
+                                "init_containers: assigning cname=%s to slot=%s host=%s",
                                 n,
                                 s.num,
                                 s.host,
@@ -313,17 +314,16 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
                             )
                             continue
                 log.info(
-                    'init_containers: removing unallocated cname=%s cid=%s host=%s',
+                    "init_containers: removing unallocated cname=%s cid=%s host=%s",
                     n,
                     i,
                     h,
                 )
                 try:
-                    m = getattr(d, 'remove_container')
+                    m = getattr(d, "remove_container")
                     yield self.executor.submit(m, i, force=True)
                 except Exception as e:
-                    log.error('init_containers: remove cid=%s failed: %s', i, e)
-
+                    log.error("init_containers: remove cid=%s failed: %s", i, e)
 
     @classmethod
     def __init_cpu_quota(cls, pool):
@@ -347,11 +347,11 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
 
     @classmethod
     def __init_pids_limit(cls, pool):
-        if 'pids_limit' in pool:
+        if "pids_limit" in pool:
             return
         import resource
 
-        if not pool.get('servers_per_host', 0):
+        if not pool.get("servers_per_host", 0):
             pool.pids_limit = None
             return
 
@@ -368,12 +368,11 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
         def _assert_user(users, n):
             # use copy
             for u in users:
-                assert u not in seen_user, \
-                    'Duplicate user {} in pools={}, {}'.format(
-                        u,
-                        seen_user[u],
-                        n,
-                    )
+                assert u not in seen_user, "Duplicate user {} in pools={}, {}".format(
+                    u,
+                    seen_user[u],
+                    n,
+                )
                 seen_user[u] = n
 
         slot_base = 1
@@ -387,16 +386,16 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
             p.name = n
             is_default = _DEFAULT_POOL == n
             if is_default:
-                assert not p.get('user_groups'), \
-                    'no user_groups allowed for default pool: user_groups={}'.format(
-                        p.user_groups,
-                    )
+                assert not p.get(
+                    "user_groups"
+                ), "no user_groups allowed for default pool: user_groups={}".format(
+                    p.user_groups,
+                )
                 # users are not referenced, but convenient to model everybody
                 p.user_groups = [_DEFAULT_USER_GROUP]
             p.users = cls.__users_for_groups(p.user_groups)
             _assert_user(p.users, n)
-            assert p.hosts or is_default, \
-                'No hosts in pool={}'.format(n)
+            assert p.hosts or is_default, "No hosts in pool={}".format(n)
             p.pksetdefault(
                 cpu_limit=None,
                 mem_limit=None,
@@ -405,13 +404,14 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
             cls.__init_pids_limit(p)
             cls.__init_cpu_quota(p)
 
-            h = p.get('min_activity_hours', _DEFAULT_MIN_ACTIVITY_HOURS)
-            p.min_activity_secs = float(h) * 3600.
-            assert p.min_activity_secs >= _MIN_MIN_ACTIVITY_SECS, \
-                'min_activity_hours={} must not be less than {}'.format(
-                    h,
-                    int(_MIN_MIN_ACTIVITY_SECS / 3600.),
-                )
+            h = p.get("min_activity_hours", _DEFAULT_MIN_ACTIVITY_HOURS)
+            p.min_activity_secs = float(h) * 3600.0
+            assert (
+                p.min_activity_secs >= _MIN_MIN_ACTIVITY_SECS
+            ), "min_activity_hours={} must not be less than {}".format(
+                h,
+                int(_MIN_MIN_ACTIVITY_SECS / 3600.0),
+            )
             p.slots = cls.__init_slots(p, slot_base)
             p.lock = tornado.locks.Lock()
             slot_base += len(p.slots)
@@ -422,9 +422,9 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
                 slots_from_dump=cls.__slots_from_dump(n),
             )
             log.info(
-                'pool=%s hosts=%s slots=%d slots_in_use=%d',
+                "pool=%s hosts=%s slots=%d slots_in_use=%d",
                 n,
-                ' '.join(p.hosts),
+                " ".join(p.hosts),
                 len(p.slots),
                 len([x for x in p.slots if x.cname]),
             )
@@ -444,7 +444,7 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
             for p in range(c.port_base, c.port_base + pool.servers_per_host):
                 res.append(
                     PKDict(
-                        activity_secs=0.,
+                        activity_secs=0.0,
                         cname=None,
                         host=h,
                         port=p,
@@ -461,25 +461,26 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
     def __init_volumes(cls, log):
         res = PKDict({_DEFAULT_USER: PKDict()})
         for s, v in cls.__cfg.volumes.items():
-            if not ('mode' in v and isinstance(v.mode, dict)):
+            if not ("mode" in v and isinstance(v.mode, dict)):
                 res[_DEFAULT_USER][s] = copy.deepcopy(v)
                 continue
             # rw must be first
-            for m in 'rw', 'ro':
+            for m in "rw", "ro":
                 v2 = copy.deepcopy(v)
                 if not m in v.mode:
                     continue
                 v2.mode = m
                 for u in cls.__users_for_groups(v.mode[m]):
                     x = res.setdefault(u, PKDict())
-                    assert s not in x, \
-                        'duplicate bind={} for user="{}" other={}'.format(s, u, x[s])
+                    assert (
+                        s not in x
+                    ), 'duplicate bind={} for user="{}" other={}'.format(s, u, x[s])
                     x[s] = v2
         cls.__users_to_volumes = res
-        log.debug('__users_to_volumes: %s', cls.__users_to_volumes)
+        log.debug("__users_to_volumes: %s", cls.__users_to_volumes)
 
     def __pool_for_user(self):
-        u  = self.user.name
+        u = self.user.name
         for p in self.__pools.values():
             if u in p.users:
                 break
@@ -490,11 +491,11 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
             # are no allocations for this user. This could be a config
             # error, or it could be all the servers in the pool are
             # unavailable.
-            self.log.warn('unverified-user=%s', self.user.name)
+            self.log.warn("unverified-user=%s", self.user.name)
             raise _Error(
                 403,
-                'sirepo-unverified: Your Sirepo account needs to be verified by our team.'
-                    + ' Please look for an email from support@radiasoft.net',
+                "sirepo-unverified: Your Sirepo account needs to be verified by our team."
+                + " Please look for an email from support@radiasoft.net",
             )
         return p
 
@@ -505,14 +506,14 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
         t = time.time() - s.activity_secs
         if t < pool.min_activity_secs:
             self.log.info(
-                'pool_gc: least active slot=%s cname=%s inactivity_secs=%s',
+                "pool_gc: least active slot=%s cname=%s inactivity_secs=%s",
                 s.num,
                 s.cname,
                 int(t),
             )
             return None
         self.log.info(
-            'pool_gc: removing slot=%s cname=%s inactivity_secs=%s for new user=%s',
+            "pool_gc: removing slot=%s cname=%s inactivity_secs=%s for new user=%s",
             s.num,
             s.cname,
             int(t),
@@ -527,11 +528,11 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
         cname = s.cname
         s.cname = None
         try:
-            m = getattr(self.__docker_client(s.host), 'remove_container')
+            m = getattr(self.__docker_client(s.host), "remove_container")
             yield self.executor.submit(m, cname, force=True)
         except Exception as e:
             self.log.error(
-                'pool_gc: remove failed: slot=%s cname=%s pool=%s host=%s error=%s',
+                "pool_gc: remove failed: slot=%s cname=%s pool=%s host=%s error=%s",
                 s.num,
                 cname,
                 pool.name,
@@ -543,7 +544,7 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
     def __pools_dump(self):
         pools = copy.deepcopy(self.__pools)
         for p in pools.values():
-            p.pkdel('lock')
+            p.pkdel("lock")
         pkjson.dump_pretty(pools, filename=_POOLS_DUMP_FILE)
 
     @tornado.gen.coroutine
@@ -554,14 +555,14 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
                 # Most likely its a poll() and only case where we use last_activity
                 self.__slot.activity_secs = self.user.last_activity.timestamp()
                 self.log.debug(
-                    'slot_alloc: already allocated slot=%s cname=%s inactivity_secs=%s',
+                    "slot_alloc: already allocated slot=%s cname=%s inactivity_secs=%s",
                     self.__slot.num,
                     self.__slot.cname,
                     int(time.time() - self.__slot.activity_secs),
                 )
                 return True
             self.log.warn(
-                'slot_alloc: gc cleanup slot=%s slot.cname=%s != %s=self.__cname',
+                "slot_alloc: gc cleanup slot=%s slot.cname=%s != %s=self.__cname",
                 self.__slot.num,
                 self.__slot.cname,
                 n,
@@ -573,7 +574,7 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
         pool, s = self.__slot_for_container(n)
         if s:
             self.log.info(
-                'slot_alloc: found slot=%s cname=%s pool=%s host=%s',
+                "slot_alloc: found slot=%s cname=%s pool=%s host=%s",
                 s.num,
                 n,
                 pool.name,
@@ -582,10 +583,10 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
         else:
             s, pool = yield self.__slot_alloc_try(no_raise)
             if not s:
-                self.log.info('alloc: no slot for user=%s', self.user.name)
+                self.log.info("alloc: no slot for user=%s", self.user.name)
                 return False
             self.log.info(
-                'slot_alloc: allocated slot=%s cname=%s pool=%s host=%s',
+                "slot_alloc: allocated slot=%s cname=%s pool=%s host=%s",
                 s.num,
                 n,
                 pool.name,
@@ -597,9 +598,9 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
         self.mem_limit = pool.mem_limit
         for x in _EXTRA_HOST_CONFIG:
             setattr(self, x, pool[x])
-        g = pool.get('gpus')
+        g = pool.get("gpus")
         if g:
-            g = -1 if g == 'all' else int(g)
+            g = -1 if g == "all" else int(g)
         self.__gpus = g
         self.__pools_dump()
         return True
@@ -608,16 +609,16 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
     def __slot_alloc_try(self, no_raise):
         def _no_slots(pool):
             self.log.warn(
-                'slot_alloc_try: no more servers, pool=%s slots_in_use=%s user=%s',
+                "slot_alloc_try: no more servers, pool=%s slots_in_use=%s user=%s",
                 pool.name,
                 len(pool.slots),
                 self.user.name,
             )
             raise _Error(
                 429,
-                'sirepo-basic: There are no more servers available for'
-                    + ' Sirepo Basic Users. Upgrade to'
-                    + ' Sirepo Premium or try again later.',
+                "sirepo-basic: There are no more servers available for"
+                + " Sirepo Basic Users. Upgrade to"
+                + " Sirepo Premium or try again later.",
             )
 
         pool = self.__pool_for_user()
@@ -642,7 +643,7 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
             slot.start_time = previous_slot.start_time
         else:
             slot.activity_secs = time.time()
-            slot.start_time = datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
+            slot.start_time = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
 
     @classmethod
     def __slot_for_container(cls, cname):
@@ -656,7 +657,7 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
         if not self.__slot:
             return
         self.log.info(
-            'free slot=%s cname=%s user=%s host=%s',
+            "free slot=%s cname=%s user=%s host=%s",
             self.__slot.num,
             self.__slot.cname,
             self.user.name,
@@ -675,28 +676,31 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
         if not p.exists():
             return PKDict()
         slots = PKDict()
-        for s in pkjson.load_any(p).pkunchecked_nested_get(
-                f'{pool_name}.slots',
-        ) or []:
-                slots[s.cname] = s
+        for s in (
+            pkjson.load_any(p).pkunchecked_nested_get(
+                f"{pool_name}.slots",
+            )
+            or []
+        ):
+            slots[s.cname] = s
         return slots
 
     @classmethod
     def __users_for_groups(cls, groups):
         if not groups:
-            return [];
+            return []
         if _DEFAULT_USER_GROUP == groups[0]:
             return [_DEFAULT_USER]
-        assert _DEFAULT_USER_GROUP not in groups, \
-            '{} must be the only user in user_groups=[{}]'.format(
-                _DEFAULT_USER_GROUP,
-                groups,
-            )
+        assert (
+            _DEFAULT_USER_GROUP not in groups
+        ), "{} must be the only user in user_groups=[{}]".format(
+            _DEFAULT_USER_GROUP,
+            groups,
+        )
         res = set()
         for g in groups:
             res.update(cls.__cfg.user_groups[g])
         return sorted(res)
-
 
     @tornado.gen.coroutine
     def start(self, *args, **kwargs):
