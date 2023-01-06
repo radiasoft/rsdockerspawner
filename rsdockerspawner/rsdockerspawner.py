@@ -53,6 +53,7 @@ _DEFAULT_USER = "*"
 
 #: Parameters set in create_object
 _EXTRA_HOST_CONFIG = (
+    "cap_add",
     "cpu_period",
     "cpu_quota",
     "pids_limit",
@@ -397,6 +398,7 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
             _assert_user(p.users, n)
             assert p.hosts or is_default, "No hosts in pool={}".format(n)
             p.pksetdefault(
+                cap_add=None,
                 cpu_limit=None,
                 mem_limit=None,
                 shm_size=None,
