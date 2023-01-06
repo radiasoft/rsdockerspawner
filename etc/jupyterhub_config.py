@@ -37,6 +37,7 @@ c.RSDockerSpawner.cfg = (
             "servers_per_host": 1
         },
         "private": {
+            "cap_add": ["SYS_PTRACE"],
             "hosts": [ "localhost.localdomain" ],
             "min_activity_hours": 1,
             "servers_per_host": 1,
