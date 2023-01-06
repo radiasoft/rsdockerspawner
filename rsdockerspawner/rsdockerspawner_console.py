@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-u"""Front-end command line for :mod:`rsdockerspawner`.
+"""Front-end command line for :mod:`rsdockerspawner`.
 
 See :mod:`pykern.pkcli` for how this module is used.
 
@@ -12,8 +12,8 @@ import sys
 
 
 def main():
-    return pkcli.main('rsdockerspawner')
+    return pkcli.main("rsdockerspawner")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     sys.exit(main())
