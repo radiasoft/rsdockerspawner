@@ -618,9 +618,9 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
             )
             raise _Error(
                 429,
-                "sirepo-basic: There are no more servers available for"
-                + " Sirepo Basic Users. Upgrade to"
-                + " Sirepo Premium or try again later.",
+                "sirepo-commuity: There are no more servers available for"
+                + " Sirepo Community Users. Upgrade to"
+                + " Sirepo Professional or try again later.",
             )
 
         pool = self.__pool_for_user()
