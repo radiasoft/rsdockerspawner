@@ -1,13 +1,11 @@
-node_modules/
-run/
-
 MANIFEST.in
-tox.ini
 pytest.ini
-pykern_setup.yaml
+tox.ini
 .python-version
 .#*
 \#*
+.idea/
+.vscode/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -48,9 +46,12 @@ pip-delete-this-directory.txt
 htmlcov/
 .tox/
 .coverage
+.coverage.*
 .cache
 nosetests.xml
 coverage.xml
+*,cover
+.pytest_cache
 
 # Translations
 *.mo
@@ -61,6 +62,7 @@ coverage.xml
 
 # Sphinx documentation
 docs/_build/
+_build_html/
 
 # PyBuilder
 target/
