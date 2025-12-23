@@ -3,6 +3,7 @@
 :copyright: Copyright (c) 2019 RadiaSoft LLC.  All Rights Reserved.
 :license: http://www.apache.org/licenses/LICENSE-2.0.html
 """
+
 from dockerspawner import dockerspawner
 from pykern import pkconfig
 from pykern import pkio
@@ -131,6 +132,11 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
 
     @tornado.gen.coroutine
     def pull_image(self, *args, **kwargs):
+
+        # RJN need to fix this
+        # [I 2025-12-18 17:06:24.356 JupyterHub log:192] 200 POST /hub/api/users/vagrant/activity (vagrant@127.0.0.1) 22.00ms
+        # [D 2025-12-18 17:06:25.148 JupyterHub rsdockerspawner:557] slot_alloc: already allocated slot=1 cname=/jupyter-vagrant inactivity_secs=514
+
         yield self.__slot_alloc()
         yield super().pull_image(*args, **kwargs)
 
