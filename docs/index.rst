@@ -3,6 +3,10 @@ Welcome to rsdockerspawner
 
 multi-node DockerSpawner
 
+.. autosummary::
+   :toctree: _autosummary
+   :recursive:
+
 .. toctree::
    :maxdepth: 2
 
