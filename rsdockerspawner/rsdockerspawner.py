@@ -488,7 +488,10 @@ class RSDockerSpawner(dockerspawner.DockerSpawner):
             # are no allocations for this user. This could be a config
             # error, or it could be all the servers in the pool are
             # unavailable.
-            self.log.warn("unverified-user=%s", self.user.name)
+            self.log.warn(
+                "unverified-user=%s; May not be able to talk to docker or a config error or legit unverified user",
+                self.user.name,
+            )
             raise _Error(
                 403,
                 "sirepo-unverified: Your Sirepo account needs to be verified by our team."
